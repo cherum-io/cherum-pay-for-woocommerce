@@ -4,7 +4,7 @@ Tags: woocommerce, cryptocurrency, payment gateway, usdc, stablecoin
 Requires at least: 6.5
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.3.1
+Stable tag: 1.3.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -98,6 +98,18 @@ Yes, with the classic checkout and with the Cart and Checkout blocks. Nothing to
 5. Settings: one key, connected.
 
 == Changelog ==
+
+= 1.3.2 =
+* Paying a second time works. With "Leave it pending" set, an order whose invoice had expired sent the buyer straight back to the expired invoice — the only page they could reach was the one telling them it was too late. The plugin now checks the invoice before reusing it and asks for a fresh one when the old one is dead.
+* Refunds are no longer refused when the service is reachable and accepted when it is not. The two cases were the wrong way round: a timeout blocked the refund and showed the raw cURL line, while the service's own "cannot price a refund right now" was mistaken for a hiccup and the refund was sent anyway.
+* A refusal without a sentence now names its reason and its numbers instead of "Cherum Pay returned status 409".
+* One e-mail per payment. With "Order status once paid = Completed" the buyer received both "Processing order" and "Completed order" for the same payment, and the order history showed a transition that never needed to happen.
+* An order rescued by the fallback check keeps "Paid with 8.83 USDC · base", like an order closed by a notification.
+* The fallback check goes oldest first and remembers what it has asked about. On a store with more than ten stale orders the oldest — the ones about to fall out of the window for good — were never asked about at all.
+* The discount and the invoice lifetime are checked when they are saved. "95%" saved happily and no discount ever appeared; "2 minutes" was quietly turned into 5. Both now say what was actually stored.
+* A failed connection attempt no longer forgets the endpoint number, which made the next successful save roll the notification secret for nothing.
+* A network failure at checkout tells the buyer nothing was charged, instead of showing them "cURL error 28: Operation timed out".
+* "Invoice created" is written to the order history only when the invoice really is a new one.
 
 = 1.3.1 =
 * "Back to the shop" on the payment page no longer cancels the order. It used to open WooCommerce's cancel link, so a buyer who just wanted another look at the basket lost the order without being asked. It now goes to the order's own pay page, where they can pay again or pick another method.

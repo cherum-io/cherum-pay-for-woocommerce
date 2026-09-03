@@ -238,13 +238,38 @@ class Cherum_Pay_Api {
 		}
 		// The service answers {error:{code,message}} and the message is written
 		// for a human — passing it through beats inventing our own wording.
-		$message = isset( $body['error']['message'] )
-			? (string) $body['error']['message']
-			: sprintf(
+		$err = ( isset( $body['error'] ) && is_array( $body['error'] ) ) ? $body['error'] : array();
+		if ( isset( $err['message'] ) && '' !== (string) $err['message'] ) {
+			$message = (string) $err['message'];
+		} elseif ( isset( $err['code'] ) && '' !== (string) $err['code'] ) {
+			/* A refusal that carries a code but no sentence (1.3.2). It should
+			   not happen — the contract is {code,message} — but when it did, the
+			   shop owner was told "Cherum Pay returned status 409" while the
+			   reason and the numbers sat in the body unread. Name the code, and
+			   append whatever scalars came in `detail`. */
+			$message = sprintf(
+				/* translators: %s: machine-readable error code from the service. */
+				__( 'Cherum Pay refused the request (%s).', 'cherum-pay-for-woocommerce' ),
+				(string) $err['code']
+			);
+			$bits = array();
+			if ( isset( $err['detail'] ) && is_array( $err['detail'] ) ) {
+				foreach ( $err['detail'] as $k => $v ) {
+					if ( is_scalar( $v ) ) {
+						$bits[] = $k . ': ' . $v;
+					}
+				}
+			}
+			if ( $bits ) {
+				$message .= ' ' . implode( ', ', $bits );
+			}
+		} else {
+			$message = sprintf(
 				/* translators: %d: HTTP status code. */
 				__( 'Cherum Pay returned status %d.', 'cherum-pay-for-woocommerce' ),
 				$code
 			);
+		}
 		return array( 'ok' => false, 'data' => $body, 'error' => $message, 'status' => $code );
 	}
 }

@@ -3,7 +3,7 @@
  * Plugin Name:       Cherum Pay for WooCommerce
  * Plugin URI:        https://cherum.io/woocommerce
  * Description:       Accept stablecoin payments in your WooCommerce store through Cherum Pay. The buyer picks the coin and the network; you get paid in the asset you chose.
- * Version:           1.3.1
+ * Version:           1.3.2
  * Requires at least: 6.5
  * Requires PHP:      7.4
  * Requires Plugins:  woocommerce
@@ -23,7 +23,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'CHERUM_PAY_VERSION', '1.3.1' );
+define( 'CHERUM_PAY_VERSION', '1.3.2' );
 define( 'CHERUM_PAY_FILE', __FILE__ );
 define( 'CHERUM_PAY_PATH', plugin_dir_path( __FILE__ ) );
 define( 'CHERUM_PAY_URL', plugin_dir_url( __FILE__ ) );

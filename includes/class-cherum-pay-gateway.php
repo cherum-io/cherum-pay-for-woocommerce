@@ -194,6 +194,10 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 				'type'        => 'number',
 				'default'     => '20',
 				'desc_tip'    => true,
+				// The browser refuses out-of-range numbers before the form is
+				// sent; validate_expires_min_field below is what makes it true
+				// for a field filled in by anything other than this screen.
+				'custom_attributes' => array( 'min' => '5', 'max' => '1440', 'step' => '1' ),
 				'description' => sprintf(
 					/* translators: %d is the store's own stock-hold window in minutes. */
 					__( 'How long the buyer has to pay before the invoice expires. Between 5 and 1440. Note: WooCommerce holds stock for an unpaid order for %d minutes — set a longer window here and the goods can be sold to someone else while your invoice is still open.', 'cherum-pay-for-woocommerce' ),
@@ -205,6 +209,7 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 				'type'        => 'number',
 				'default'     => '0',
 				'desc_tip'    => true,
+				'custom_attributes' => array( 'min' => '0', 'max' => '90', 'step' => '0.1' ),
 				/* Why this exists at all: taking crypto costs the shop less than
 				   taking a card, and part of that difference can go back to the
 				   buyer. They see the saving BEFORE choosing the method, which is
@@ -266,6 +271,74 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 				'description' => __( 'Off by default. Keys and signatures are never written — only what happened and when.', 'cherum-pay-for-woocommerce' ),
 			),
 		);
+	}
+
+	/**
+	 * The invoice window the service will accept, in minutes.
+	 *
+	 * One definition for the settings screen and for the invoice itself: while
+	 * they were two, the shop owner could save "2" and get a 5-minute invoice
+	 * without ever being told.
+	 *
+	 * @param mixed $raw Whatever is in the setting.
+	 * @return int
+	 */
+	private static function clamp_minutes( $raw ) {
+		return max( 5, min( 1440, (int) $raw ) );
+	}
+
+	/**
+	 * A saved setting must be a setting that works (1.3.2).
+	 *
+	 * Both number fields were plain inputs that accepted anything and were
+	 * silently corrected — or silently ignored — later: "95" in the discount
+	 * saved fine and no discount ever appeared (over 90% is refused where the
+	 * cart fee is added), and "2" minutes was quietly turned into 5 when the
+	 * invoice was created. A shop owner who sees their number in the form is
+	 * entitled to believe it is the number in force. These clamp on save and
+	 * say what was actually written.
+	 *
+	 * @param string $key   Field id.
+	 * @param string $value Value posted by the form.
+	 * @return string
+	 */
+	public function validate_discount_pct_field( $key, $value ) {
+		$given = (float) $this->validate_text_field( $key, $value );
+		$kept  = max( 0, min( 90, $given ) );
+		if ( abs( $kept - $given ) > 0.0001 && class_exists( 'WC_Admin_Settings' ) ) {
+			WC_Admin_Settings::add_error(
+				sprintf(
+					/* translators: 1: the number typed, 2: the number stored. */
+					__( 'Cherum Pay: a crypto discount of %1$s%% cannot be offered; %2$s%% was saved instead. The discount has to stay between 0 and 90.', 'cherum-pay-for-woocommerce' ),
+					$given,
+					$kept
+				)
+			);
+		}
+		return (string) $kept;
+	}
+
+	/**
+	 * Invoice lifetime: clamped to the window the service accepts.
+	 *
+	 * @param string $key   Field id.
+	 * @param string $value Value posted by the form.
+	 * @return string
+	 */
+	public function validate_expires_min_field( $key, $value ) {
+		$given = (int) $this->validate_text_field( $key, $value );
+		$kept  = self::clamp_minutes( $given );
+		if ( $kept !== $given && class_exists( 'WC_Admin_Settings' ) ) {
+			WC_Admin_Settings::add_error(
+				sprintf(
+					/* translators: 1: the number typed, 2: the number stored. */
+					__( 'Cherum Pay: an invoice lifetime of %1$d minutes is outside what Cherum accepts; %2$d minutes was saved instead. It has to stay between 5 and 1440.', 'cherum-pay-for-woocommerce' ),
+					$given,
+					$kept
+				)
+			);
+		}
+		return (string) $kept;
 	}
 
 	/**
@@ -348,6 +421,34 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 				. esc_html__( 'The payment page shows the business name and logo from your Cherum account, under Settings → Checkout branding. Set them once, or your buyers see "Cherum Pay" where your shop name belongs.', 'cherum-pay-for-woocommerce' )
 				. '</p>';
 		}
+		/* A number saved by an older version (or by WP-CLI) can still be outside
+		   what works. Say so where it is set, instead of leaving the shop owner
+		   with a discount that never appears at checkout. */
+		$pct = (float) $this->get_option( 'discount_pct', '0' );
+		if ( $pct > 90 || $pct < 0 ) {
+			echo '<div class="notice notice-warning inline"><p>'
+				. esc_html(
+					sprintf(
+						/* translators: %s: the stored discount percentage. */
+						__( 'The crypto discount is set to %s%%, which is outside 0–90, so no discount is being applied at checkout. Save this screen to correct it.', 'cherum-pay-for-woocommerce' ),
+						$pct
+					)
+				)
+				. '</p></div>';
+		}
+		$mins_set = (int) $this->get_option( 'expires_min', 20 );
+		if ( $mins_set !== self::clamp_minutes( $mins_set ) ) {
+			echo '<div class="notice notice-warning inline"><p>'
+				. esc_html(
+					sprintf(
+						/* translators: 1: the stored lifetime, 2: the lifetime in force. */
+						__( 'The invoice lifetime is set to %1$d minutes, which Cherum does not accept; invoices are being created with %2$d. Save this screen to correct it.', 'cherum-pay-for-woocommerce' ),
+						$mins_set,
+						self::clamp_minutes( $mins_set )
+					)
+				)
+				. '</p></div>';
+		}
 		$status = (string) $this->get_option( 'webhook_status' );
 		if ( 'yes' === $this->get_option( 'enabled' ) && '' !== $key && '' === (string) $this->get_option( 'webhook_secret' ) ) {
 			echo '<div class="notice notice-warning inline"><p>'
@@ -385,7 +486,9 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 	public function connect_notifications() {
 		$key = (string) $this->get_option( 'api_key' );
 		if ( '' === $key ) {
-			$this->remember_connection( '', '' );
+			// The only case that really clears the endpoint number: with no key
+			// there is no account this store could be connected to.
+			$this->remember_connection( 0, '' );
 			return;
 		}
 		$url = untrailingslashit( rest_url( 'cherum-pay/v1/webhook' ) );
@@ -466,14 +569,24 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 	/**
 	 * Write the connection outcome into the settings.
 	 *
-	 * @param int|string $endpoint_id Endpoint id, or '' when not connected.
+	 * A FAILURE DOES NOT ERASE WHAT WE KNOW (1.3.2). Every error branch used to
+	 * pass '' as the endpoint id, so one unreachable minute wiped a perfectly
+	 * good endpoint number — and because the secret survived, the next
+	 * successful save no longer recognised its own endpoint and rolled the
+	 * secret for nothing. The id is a fact about a connection that did happen;
+	 * only an empty API key (nothing to be connected to) clears it.
+	 *
+	 * @param int|string $endpoint_id Endpoint id, '' to keep the stored one,
+	 *                                or 0 to clear it (no key configured).
 	 * @param string     $problem     Sentence for the shop owner, '' when fine.
 	 * @param string     $secret      New secret to keep, '' to leave as is.
 	 */
 	private function remember_connection( $endpoint_id, $problem, $secret = '' ) {
-		$this->settings['webhook_endpoint_id'] = '' === $endpoint_id ? '' : (string) (int) $endpoint_id;
-		$this->settings['webhook_status']      = (string) $problem;
-		$this->settings['webhook_checked_at']  = (string) time();
+		if ( '' !== $endpoint_id ) {
+			$this->settings['webhook_endpoint_id'] = 0 === (int) $endpoint_id ? '' : (string) (int) $endpoint_id;
+		}
+		$this->settings['webhook_status']     = (string) $problem;
+		$this->settings['webhook_checked_at'] = (string) time();
 		if ( '' !== $secret ) {
 			$this->settings['webhook_secret'] = $secret;
 		}
@@ -535,8 +648,52 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 		}
 
 		$api  = new Cherum_Pay_Api( (string) $this->get_option( 'api_key' ) );
-		$mins = (int) $this->get_option( 'expires_min', 20 );
-		$mins = max( 5, min( 1440, $mins ) );
+		$mins = self::clamp_minutes( $this->get_option( 'expires_min', 20 ) );
+
+		/* A SECOND ATTEMPT MUST NOT LAND ON A DEAD INVOICE (1.3.2).
+		 *
+		 * The idempotency key below is per order and stable, and the service
+		 * replays the stored answer for it for 24 hours. That is right for a
+		 * double click and wrong for the buyer who comes back the next hour:
+		 * with "Leave it pending" set, the order is still payable while its
+		 * invoice has expired, and "Pay for order" walked them into a page
+		 * reading "This invoice has expired" whose only way out led back to
+		 * the same page. Found on the live demo store, 02.09.
+		 *
+		 * So: ask what the stored invoice is doing now. Still payable — send
+		 * them back to it (one invoice, no second note). Dead — count the
+		 * attempt, which changes the key and mints a fresh invoice. Already
+		 * paid — apply it instead of creating anything: minting here would let
+		 * the same order be paid twice. Unreachable — keep the old key: one
+		 * stale invoice beats two live ones.
+		 */
+		$attempt = (int) $order->get_meta( '_cherum_pay_attempt' );
+		$known   = (string) $order->get_meta( '_cherum_invoice_id' );
+		if ( '' !== $known ) {
+			$cur    = $api->get_invoice( $known );
+			$status = isset( $cur['data']['invoice']['status'] ) ? (string) $cur['data']['invoice']['status'] : '';
+			if ( in_array( $status, array( 'new', 'seen' ), true ) ) {
+				$url = isset( $cur['data']['invoice']['checkoutUrl'] )
+					? (string) $cur['data']['invoice']['checkoutUrl']
+					: (string) $order->get_meta( '_cherum_checkout_url' );
+				if ( '' !== $url ) {
+					self::log( 'order ' . $order->get_id() . ': invoice ' . $known . ' is still ' . $status . ' — buyer sent back to it' );
+					return array( 'result' => 'success', 'redirect' => self::with_lang( $url ) );
+				}
+			} elseif ( in_array( $status, array( 'confirmed', 'settled' ), true ) ) {
+				/* Paid already — the notification has not reached us yet. Apply
+				   it through the same path the webhook uses and take the buyer
+				   to the "order received" page instead of a new invoice. */
+				self::log( 'order ' . $order->get_id() . ': invoice ' . $known . ' is ' . $status . ' — applying instead of creating a new one' );
+				self::poll_order( $order );
+				return array( 'result' => 'success', 'redirect' => $this->get_return_url( $order ) );
+			} elseif ( '' !== $status ) {
+				++$attempt;
+				$order->update_meta_data( '_cherum_pay_attempt', (string) $attempt );
+				$order->save();
+				self::log( 'order ' . $order->get_id() . ': invoice ' . $known . ' is ' . $status . ' — asking for a new one (attempt ' . $attempt . ')' );
+			}
+		}
 
 		$body = array(
 			'amount'      => (float) $order->get_total(),
@@ -546,8 +703,13 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 			// an amount and a seller but never the one line a person looks for.
 			'description' => $this->describe( $order ),
 			// Where the buyer goes after paying, and where the "back to the
-			// shop" link on the payment page points. The service validates both
-			// and refuses anything that is not the shop's own https address.
+			// shop" link on the payment page points. The service checks both
+			// for shape, not for ownership (corrected in 1.3.2, the comment
+			// here used to claim more than the service does): a public https
+			// address with no credentials in it, not inside cherum.io and not
+			// dressed up to look like it, up to 1024 characters. Whether the
+			// address belongs to this shop is on us — both come from
+			// WooCommerce's own order methods below, never from a request.
 			//
 			// `cancelUrl` IS THE WAY BACK, NOT A CANCELLATION (1.3.1). Until now
 			// it carried get_cancel_order_url_raw() — a nonced link that cancels
@@ -563,24 +725,36 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 			'expiresInMinutes' => $mins,
 		);
 
-		// The key is per order and stable, so a retried checkout reuses the
-		// invoice instead of minting a second one the buyer might pay.
 		/* The buyer's e-mail leaves the store only when the shop owner asked for
 		   Cherum's receipt; the default sends nothing personal. */
 		if ( 'yes' === $this->get_option( 'send_email', 'no' ) && is_email( $order->get_billing_email() ) ) {
 			$body['customerEmail'] = $order->get_billing_email();
 		}
-		$res = $api->create_invoice( $body, 'wc-' . $order->get_id() . '-' . $order->get_order_key() );
+		/* The key is per order and stable WITHIN ONE ATTEMPT, so a double click
+		   reuses the invoice instead of minting a second one the buyer might
+		   pay. The attempt number above is what makes a later, deliberate retry
+		   a new invoice rather than a replay of a dead one. */
+		$idem = 'wc-' . $order->get_id() . '-' . $order->get_order_key();
+		if ( $attempt > 0 ) {
+			$idem .= '-' . $attempt;
+		}
+		$res = $api->create_invoice( $body, $idem );
 
 		if ( ! $res['ok'] ) {
-			wc_add_notice(
-				sprintf(
+			/* A NETWORK FAILURE IS NOT A REFUSAL (1.3.2). Until now the buyer
+			   was shown whatever came back, so a timeout read as "Could not
+			   start the payment: cURL error 28: Operation timed out" — our
+			   plumbing, in their face, with no idea whether they owe money.
+			   Status 0 is the one case that means "we never got an answer";
+			   the technical line goes to the log, where the shop owner is. */
+			$buyer_message = 0 === (int) $res['status']
+				? __( 'The payment service did not answer just now. Nothing has been charged — please try again in a moment.', 'cherum-pay-for-woocommerce' )
+				: sprintf(
 					/* translators: %s: message from the payment service. */
 					__( 'Could not start the payment: %s', 'cherum-pay-for-woocommerce' ),
-					esc_html( $res['error'] )
-				),
-				'error'
-			);
+					$res['error']
+				);
+			wc_add_notice( esc_html( $buyer_message ), 'error' );
 			$order->add_order_note(
 				sprintf(
 					/* translators: %s: message from the payment service. */
@@ -602,6 +776,7 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 
 		// The id is how a notification finds this order later. Stored before
 		// the redirect: the buyer may pay before the browser comes back.
+		$is_new_invoice = ( $id !== $known );
 		$order->update_meta_data( '_cherum_invoice_id', $id );
 		$order->update_meta_data( '_cherum_checkout_url', $url );
 		/* The invoice's own USD value and the order total AT CREATION. Refunds
@@ -617,8 +792,14 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 		   time a gateway is called — the classic checkout creates it that way
 		   and the Store API sets it just before calling us. Re-setting the same
 		   status changes nothing and only adds a second entry to the order's
-		   history every time. */
-		$order->add_order_note( __( 'Cherum Pay: invoice created, waiting for payment.', 'cherum-pay-for-woocommerce' ) );
+		   history every time.
+		   ONLY WHEN THE INVOICE IS ACTUALLY NEW (1.3.2): the service answers a
+		   repeated attempt with the invoice it already has, and writing "invoice
+		   created" again turned the order history into a list of events that
+		   never happened. */
+		if ( $is_new_invoice ) {
+			$order->add_order_note( __( 'Cherum Pay: invoice created, waiting for payment.', 'cherum-pay-for-woocommerce' ) );
+		}
 
 		/* THE CART IS LEFT ALONE ON PURPOSE, and this is a correction: it used
 		   to be emptied right here, before the buyer had even seen the payment
@@ -818,10 +999,26 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 
 		/* The quote is advisory: a refusal here is reported with its own words,
 		   but a network hiccup must not block a refund the shop owner asked
-		   for. Only an explicit refusal stops us. */
+		   for. Only an explicit refusal stops us.
+		   JUDGED BY THE STATUS CODE, NOT BY THE WORDING (1.3.2). Until now this
+		   looked for the word "network" in the message, and the two cases came
+		   out swapped: a real network failure arrives with status 0 and says
+		   "cURL error 28: Operation timed out" — no such word, so the shop owner
+		   was refused and shown the raw cURL line — while the service's own
+		   refusal reads "network fee or rate unavailable", which contains it, so
+		   that one sailed through to POST /refunds. Status 0 is the only case
+		   where nobody answered; every HTTP code is an answer. */
 		$quote = $api->refund_quote( $invoice_id, $amount_usd );
-		if ( ! $quote['ok'] && '' !== $quote['error'] && false === strpos( $quote['error'], 'network' ) ) {
-			return new WP_Error( 'cherum_refund_unavailable', $quote['error'] );
+		if ( ! $quote['ok'] && 0 !== (int) $quote['status'] ) {
+			return new WP_Error(
+				'cherum_refund_unavailable',
+				'' !== $quote['error']
+					? $quote['error']
+					: __( 'Cherum could not price this refund.', 'cherum-pay-for-woocommerce' )
+			);
+		}
+		if ( ! $quote['ok'] ) {
+			self::log( 'refund quote unreachable for order ' . $order_id . ' (' . $quote['error'] . ') — going ahead with the refund' );
 		}
 
 		$idem = 'wc-' . $order_id . '-' . md5( $invoice_id . '|' . $amount_usd . '|' . $reason );
@@ -861,27 +1058,63 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 		}
 	}
 
+	/** How long a polled order is left alone before the net looks at it again. */
+	const POLL_COOLDOWN = 1800;
+
+	/** Orders asked about in one cron pass, and how many are fetched to find them. */
+	const POLL_BATCH = 10;
+	const POLL_WINDOW = 25;
+
 	/**
 	 * Cron pass: ask Cherum about stale unpaid Cherum orders.
 	 *
-	 * The webhook is the primary path; this is the net under it. Bounded to
-	 * ten orders between ten minutes and two days old — younger ones the
-	 * webhook still owns, older ones have expired long ago.
+	 * The webhook is the primary path; this is the net under it. Orders between
+	 * ten minutes and two days old are eligible — younger ones the webhook
+	 * still owns, older ones have expired long ago.
+	 *
+	 * OLDEST FIRST, AND ONLY ONCE PER HALF HOUR EACH (1.3.2). It used to take
+	 * the ten NEWEST, with no memory of what it had asked about: on a store with
+	 * more than ten stale orders the newest ten were re-asked every quarter of
+	 * an hour for ever and the older ones — the ones about to fall out of the
+	 * two-day window and stay pending for good — were never asked about at all.
+	 * Seen on the demo store with thirteen candidates: the one order that had
+	 * actually been paid was the one the pass never reached. Oldest first puts
+	 * the most urgent first, and the stamp moves the queue along.
 	 */
 	public static function poll_pending_orders() {
 		$orders = wc_get_orders(
 			array(
-				'limit'        => 10,
+				'limit'        => self::POLL_WINDOW,
 				'status'       => array( 'pending', 'on-hold' ),
 				'meta_key'     => '_cherum_invoice_id', // phpcs:ignore WordPress.DB.SlowDBQuery
 				'meta_compare' => 'EXISTS',
+				'orderby'      => 'date',
+				'order'        => 'ASC',
 				'date_created' => ( time() - 2 * DAY_IN_SECONDS ) . '...' . ( time() - 10 * MINUTE_IN_SECONDS ),
 			)
 		);
+		/* The "asked recently" filter is done here rather than in the query on
+		   purpose: meta_query is not supported by the classic order storage and
+		   raises a "doing it wrong" notice there, so a query that reads well
+		   would misbehave on every store that has not moved to HPOS. */
+		$done = 0;
 		foreach ( $orders as $order ) {
-			if ( $order instanceof WC_Order ) {
-				self::poll_order( $order );
+			if ( $done >= self::POLL_BATCH ) {
+				break;
 			}
+			if ( ! $order instanceof WC_Order ) {
+				continue;
+			}
+			$last = (int) $order->get_meta( '_cherum_polled_at' );
+			if ( $last && ( time() - $last ) < self::POLL_COOLDOWN ) {
+				continue;
+			}
+			// Stamped BEFORE the call: a request that hangs must not put the
+			// same order at the head of the queue for the next pass as well.
+			$order->update_meta_data( '_cherum_polled_at', (string) time() );
+			$order->save();
+			self::poll_order( $order );
+			++$done;
 		}
 	}
 
@@ -914,6 +1147,13 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 			return;
 		}
 		self::log( 'poll: invoice ' . $invoice_id . ' is ' . $status . ' — applying to order ' . $order->get_id() );
-		Cherum_Pay_Webhook::apply_event( $order, $map[ $status ], array( 'id' => $invoice_id ) );
+		/* THE WHOLE INVOICE, NOT JUST ITS ID (1.3.2). The answer we already hold
+		   carries coin, network, amountCrypto and tokenDecimals under the same
+		   names the event handler reads — passing only the id meant an order
+		   rescued by this net lost "Paid with 8.83 USDC · base" for good, while
+		   the identical order closed by a notification kept it. */
+		$invoice       = (array) $res['data']['invoice'];
+		$invoice['id'] = $invoice_id;
+		Cherum_Pay_Webhook::apply_event( $order, $map[ $status ], $invoice );
 	}
 }

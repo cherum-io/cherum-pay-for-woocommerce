@@ -166,7 +166,26 @@ class Cherum_Pay_Webhook {
 		// twice would add two "paid" notes and could move an order backwards.
 		$msg_id = (string) $request->get_header( 'webhook-id' );
 		$seen   = 'cherum_pay_seen_' . md5( $msg_id );
-		if ( get_transient( $seen ) ) {
+		/* A SECOND LOCK, ON WHAT THE EVENT SAYS (1.3.2).
+		 *
+		 * The id above is per DELIVERY, and the sender gives every endpoint its
+		 * own id for the same happening — so a store registered twice (once from
+		 * the dashboard, once by this plugin) receives one event as two
+		 * deliveries that no id can tell apart. Locking on the body's own id
+		 * would change nothing: it is the very same value as the webhook-id
+		 * header, checked against the sender. What is identical across the
+		 * copies is the event itself — its type, its creation instant and its
+		 * payload — so that is what the second lock is made of.
+		 *
+		 * It cannot swallow a real second event: two events of one type about
+		 * one invoice, carrying the same payload and stamped to the same
+		 * millisecond, are one event fanned out. */
+		$body_lock = 'cherum_pay_ev_' . md5(
+			(string) $event['type'] . '|'
+			. (string) ( isset( $event['createdAt'] ) ? $event['createdAt'] : '' ) . '|'
+			. (string) wp_json_encode( isset( $event['data'] ) ? $event['data'] : null )
+		);
+		if ( get_transient( $seen ) || get_transient( $body_lock ) ) {
 			// 200, not an error: this delivery succeeded, we simply did the
 			// work already. An error here would make the sender retry forever.
 			return new WP_REST_Response( array( 'ok' => true, 'duplicate' => true ), 200 );
@@ -195,10 +214,12 @@ class Cherum_Pay_Webhook {
 		   closes both: a crash releases the lock so the retry does the work,
 		   and a concurrent duplicate sees the lock and answers 200. */
 		set_transient( $seen, 1, DAY_IN_SECONDS );
+		set_transient( $body_lock, 1, DAY_IN_SECONDS );
 		try {
 			self::apply_event( $order, (string) $event['type'], $event['data'] );
 		} catch ( \Throwable $e ) {
 			delete_transient( $seen );
+			delete_transient( $body_lock );
 			Cherum_Pay_Gateway::log( 'webhook apply failed, lock released for retry: ' . $e->getMessage() );
 			return new WP_REST_Response( array( 'error' => 'apply_failed' ), 500 );
 		}
@@ -252,19 +273,41 @@ class Cherum_Pay_Webhook {
 				// order of arrival is not guaranteed, and an out-of-order
 				// delivery must not undo money that already landed.
 				if ( ! $order->is_paid() ) {
-					$order->payment_complete( sanitize_text_field( (string) ( $data['id'] ?? '' ) ) );
 					/* The shop owner's choice of the after-payment status. In
 					   1.1.0 this setting existed in the form and in the
 					   changelog but was wired to nothing — the class of lie
 					   this plugin exists to avoid. 'default' keeps whatever
-					   payment_complete() decided. */
+					   payment_complete() decided.
+					   TOLD TO payment_complete(), NOT CORRECTED AFTERWARDS
+					   (1.3.2). Setting the status after the fact meant two
+					   transitions and two e-mails to the buyer for one payment:
+					   "Processing order" from payment_complete, then "Completed
+					   order" from the correction, one second apart. WooCommerce
+					   asks a filter which status a completed payment leads to —
+					   answering it gives one transition and one e-mail. */
 					$wanted = Cherum_Pay_Gateway::setting( 'paid_status', 'default' );
-					if ( in_array( $wanted, array( 'processing', 'completed' ), true )
-						&& ! $order->has_status( $wanted ) ) {
-						$order->update_status(
-							$wanted,
-							__( 'Cherum Pay: status set per the gateway setting "Order status once paid".', 'cherum-pay-for-woocommerce' )
-						);
+					$force  = in_array( $wanted, array( 'processing', 'completed' ), true );
+					$pick   = null;
+					if ( $force ) {
+						$pick = static function () use ( $wanted ) {
+							return $wanted;
+						};
+						add_filter( 'woocommerce_payment_complete_order_status', $pick, 99 );
+					}
+					$order->payment_complete( sanitize_text_field( (string) ( $data['id'] ?? '' ) ) );
+					if ( $force ) {
+						remove_filter( 'woocommerce_payment_complete_order_status', $pick, 99 );
+						/* Belt and braces: another plugin may filter the same
+						   status at a later priority. Then, and only then, the
+						   correction happens — with its second e-mail — because
+						   a shop whose fulfilment depends on the status must
+						   get the status. */
+						if ( ! $order->has_status( $wanted ) ) {
+							$order->update_status(
+								$wanted,
+								__( 'Cherum Pay: status set per the gateway setting "Order status once paid".', 'cherum-pay-for-woocommerce' )
+							);
+						}
 					}
 				}
 				if ( isset( $data['creditedUsd'] ) ) {

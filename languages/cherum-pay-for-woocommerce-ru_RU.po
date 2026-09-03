@@ -483,3 +483,36 @@ msgstr "Оплата криптовалютой ещё не пришла. Эта
 #: includes/class-cherum-pay-gateway.php:342
 msgid "The payment page shows the business name and logo from your Cherum account, under Settings → Checkout branding. Set them once, or your buyers see \"Cherum Pay\" where your shop name belongs."
 msgstr "На странице оплаты показываются название и логотип из вашего аккаунта Cherum — раздел «Настройки → Оформление чекаута». Задайте их один раз, иначе покупатели увидят «Cherum Pay» вместо названия магазина."
+
+#. translators: %s: machine-readable error code from the service.
+#: includes/class-cherum-pay-api.php
+msgid "Cherum Pay refused the request (%s)."
+msgstr "Cherum Pay отклонил запрос (%s)."
+
+#: includes/class-cherum-pay-gateway.php
+msgid "Cherum could not price this refund."
+msgstr "Cherum не смог рассчитать этот возврат."
+
+#. translators: 1: the number typed, 2: the number stored.
+#: includes/class-cherum-pay-gateway.php
+msgid "Cherum Pay: a crypto discount of %1$s%% cannot be offered; %2$s%% was saved instead. The discount has to stay between 0 and 90."
+msgstr "Cherum Pay: скидку за оплату криптовалютой в %1$s%% предложить нельзя, сохранено %2$s%%. Скидка должна быть от 0 до 90."
+
+#. translators: 1: the number typed, 2: the number stored.
+#: includes/class-cherum-pay-gateway.php
+msgid "Cherum Pay: an invoice lifetime of %1$d minutes is outside what Cherum accepts; %2$d minutes was saved instead. It has to stay between 5 and 1440."
+msgstr "Cherum Pay: срок счёта в %1$d мин. Cherum не принимает, сохранено %2$d мин. Срок должен быть от 5 до 1440."
+
+#. translators: %s: the stored discount percentage.
+#: includes/class-cherum-pay-gateway.php
+msgid "The crypto discount is set to %s%%, which is outside 0–90, so no discount is being applied at checkout. Save this screen to correct it."
+msgstr "Скидка за оплату криптовалютой задана как %s%% — это вне диапазона 0–90, поэтому на чекауте скидка не применяется. Сохраните эту страницу, чтобы исправить."
+
+#. translators: 1: the stored lifetime, 2: the lifetime in force.
+#: includes/class-cherum-pay-gateway.php
+msgid "The invoice lifetime is set to %1$d minutes, which Cherum does not accept; invoices are being created with %2$d. Save this screen to correct it."
+msgstr "Срок счёта задан как %1$d мин. — Cherum такой не принимает, счета создаются со сроком %2$d мин. Сохраните эту страницу, чтобы исправить."
+
+#: includes/class-cherum-pay-gateway.php
+msgid "The payment service did not answer just now. Nothing has been charged — please try again in a moment."
+msgstr "Платёжный сервис сейчас не ответил. С вас ничего не списано — попробуйте ещё раз через минуту."
