@@ -2,7 +2,7 @@
 
 Accept crypto payments in your WooCommerce store — settled to your Cherum balance, refunds included.
 
-Version 1.3.2. Requires WooCommerce 8.0+, PHP 7.4+. GPLv2 or later.
+Version 1.3.3. Requires WooCommerce 8.0+, PHP 7.4+. GPLv2 or later.
 
 ## What it does
 

@@ -3,7 +3,7 @@
  * Plugin Name:       Cherum Pay for WooCommerce
  * Plugin URI:        https://cherum.io/woocommerce
  * Description:       Accept stablecoin payments in your WooCommerce store through Cherum Pay. The buyer picks the coin and the network; you get paid in the asset you chose.
- * Version:           1.3.2
+ * Version:           1.3.3
  * Requires at least: 6.5
  * Requires PHP:      7.4
  * Requires Plugins:  woocommerce
@@ -23,7 +23,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'CHERUM_PAY_VERSION', '1.3.2' );
+define( 'CHERUM_PAY_VERSION', '1.3.3' );
 define( 'CHERUM_PAY_FILE', __FILE__ );
 define( 'CHERUM_PAY_PATH', plugin_dir_path( __FILE__ ) );
 define( 'CHERUM_PAY_URL', plugin_dir_url( __FILE__ ) );
@@ -65,6 +65,24 @@ add_action(
 		if ( is_admin() ) {
 			Cherum_Pay_Order_Box::init();
 		}
+
+		/* THE CRYPTO DISCOUNT, HOOKED WHERE IT ACTUALLY FIRES (1.3.3).
+		 *
+		 * Until now this lived in the gateway's constructor, and on the classic
+		 * checkout the gateway is not built yet at the moment the cart is
+		 * totalled: WC_Payment_Gateways is created lazily on the first call to
+		 * WC()->payment_gateways(), while the checkout shortcode,
+		 * ?wc-ajax=update_order_review and — the expensive one —
+		 * ?wc-ajax=checkout all call calculate_totals() before anything asks for
+		 * a gateway. The fee was therefore never added on a classic checkout,
+		 * and the order was written at the full price with no sign that a
+		 * discount had been set. Registering here, on plugins_loaded, needs no
+		 * object at all; the handler reads the setting from the option and
+		 * re-checks the same availability rules the gateway does.
+		 *
+		 * The block checkout kept working either way; it is covered by the same
+		 * hook now instead of by a second one. */
+		add_action( 'woocommerce_cart_calculate_fees', array( 'Cherum_Pay_Gateway', 'add_crypto_discount' ) );
 
 		/* Translations. Without this call the bundled .po/.mo never load on a
 		   self-installed copy — "Russian included" was factually untrue in
@@ -113,10 +131,21 @@ add_action(
 		if ( ! function_exists( 'wp_add_privacy_policy_content' ) ) {
 			return;
 		}
-		wp_add_privacy_policy_content(
-			'Cherum Pay for WooCommerce',
-			wp_kses_post( __( 'When a customer chooses to pay with Cherum Pay, the order total, the store currency, the order number and a short line naming the items are sent to Cherum (https://cherum.io) to create a payment invoice. No customer name, e-mail or postal address is sent. Cherum\'s privacy policy: https://cherum.io/legal/privacy', 'cherum-pay-for-woocommerce' ) )
-		);
+		/* THE PARAGRAPH FOLLOWS THE SETTING (1.3.3). It used to say, flatly,
+		   that no e-mail address is sent — while the "Receipt from Cherum"
+		   setting right next door sends exactly that. A privacy notice that is
+		   true only on the default settings is worse than none: the shop owner
+		   publishes it and is then wrong about their own store. */
+		$settings = get_option( 'woocommerce_cherum_pay_settings', array() );
+		$sends_email = is_array( $settings ) && isset( $settings['send_email'] ) && 'yes' === $settings['send_email'];
+		$text = __( 'When a customer chooses to pay with Cherum Pay, the order total, the store currency, the order number and a short line naming the items are sent to Cherum (https://cherum.io) to create a payment invoice. No customer name or postal address is sent.', 'cherum-pay-for-woocommerce' )
+			. ' '
+			. ( $sends_email
+				? __( 'Because the "Receipt from Cherum" setting is on, the customer\'s e-mail address is sent as well, and is used only to send them a receipt for the payment.', 'cherum-pay-for-woocommerce' )
+				: __( 'The customer\'s e-mail address is not sent, unless you turn on the "Receipt from Cherum" setting in the payment method options.', 'cherum-pay-for-woocommerce' ) )
+			. ' '
+			. __( 'Cherum\'s privacy policy: https://cherum.io/legal/privacy', 'cherum-pay-for-woocommerce' );
+		wp_add_privacy_policy_content( 'Cherum Pay for WooCommerce', wp_kses_post( $text ) );
 	}
 );
 

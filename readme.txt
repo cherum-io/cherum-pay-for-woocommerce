@@ -4,7 +4,7 @@ Tags: woocommerce, cryptocurrency, payment gateway, usdc, stablecoin
 Requires at least: 6.5
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.3.2
+Stable tag: 1.3.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -25,7 +25,7 @@ How it differs from the other crypto gateways in this directory:
 A few things you will notice once it runs:
 
 * **The order note shows what actually arrived** on your balance after fees, not what the buyer sent.
-* **Underpaid is not "lost".** If the buyer sends less than the invoice, it stays open and they can top it up. If they send more, the extra goes back to them and the order note says so.
+* **Underpaid is not "lost".** If the buyer sends less than the invoice, it stays open and they can top it up. If they send more, the payment page offers them the surplus back and asks where to send it; the order note says what happened.
 * **A lost notification costs minutes, not a stuck order.** The "order received" page and a check every 15 minutes ask Cherum about unpaid orders and apply the answer through the same code the notification uses.
 * **An optional discount for paying in crypto**, shown as a line in the cart totals while this method is selected. Card processing costs you 2 to 3%; crypto costs 0.90%. Some shops hand part of that back.
 * **Test mode.** A key that starts with `chm_test_` makes orders and invoices that behave like real ones while no money can move.
@@ -40,7 +40,7 @@ A few things you will notice once it runs:
 
 This plugin talks to Cherum Pay, a payment service run by Cherum (https://cherum.io). It creates payment invoices there and receives notifications about them. Nothing is sent until a customer chooses this payment method at checkout.
 
-Sent when an invoice is created: the order total, the store currency, the order number, a short line naming up to three items, the address to bring the customer back to after paying, the address to bring them back to if they leave without paying, and the store's language. No customer name, e-mail or postal address is sent.
+Sent when an invoice is created: the order total, the store currency, the order number, a short line naming up to three items, the address to bring the customer back to after paying, the address to bring them back to if they leave without paying, and the store's language. No customer name or postal address is sent. The customer's e-mail address is sent only if you switch on "Receipt from Cherum", and then only so Cherum can e-mail them a receipt for the payment.
 
 Sent when you save the settings: the public address of this store's notification route, so Cherum knows where to send order updates.
 
@@ -87,7 +87,7 @@ Orders, invoices, notifications and refunds behave like real ones. The payment a
 
 = Does it work with the block checkout? =
 
-Yes, with the classic checkout and with the Cart and Checkout blocks. Nothing to switch.
+Yes, with the classic checkout and with the Cart and Checkout blocks. Nothing to switch. Up to 1.3.2 the crypto discount was the exception: it appeared in the block checkout and never in the classic one. It works in both from 1.3.3.
 
 == Screenshots ==
 
@@ -98,6 +98,20 @@ Yes, with the classic checkout and with the Cart and Checkout blocks. Nothing to
 5. Settings: one key, connected.
 
 == Changelog ==
+
+= 1.3.3 =
+* The crypto discount now works on the classic checkout. It never had: the discount was hooked from the payment method's own object, and on a classic checkout that object does not exist yet when the cart is totalled — so the order was written at the full price, with no sign anywhere that a discount had been set.
+* The discount is taken off the price after coupons, not before. With a 50% coupon and a 2% crypto discount the shop was handing back 2% of the full price, twice what it meant; a large discount next to a large coupon could bring the cart to 0.00, which WooCommerce completes without calling any payment method at all.
+* An order remembers every invoice it has ever had. When a buyer paid a second time, the store kept only the newest invoice id and answered "unknown order" to everything about the older one — including money arriving late on its address, and a payment confirmed on it inside the 24-hour window that follows an expiry. That left a paid buyer looking at an unpaid order, with nothing in the order history to explain it.
+* The late-payment note carries the figures again. It read the two fields the service does not send, so every such note in every shop said "(amount in dashboard, tx —)". It now names the amount, the coin, the network and the date you have to decide by.
+* "Leave it pending" really does e-mail the buyer a way back. Both the setting and the order note promised a link in the buyer's e-mail, and WooCommerce sends a customer nothing at all for an order that stays pending. The plugin now sends WooCommerce's own order-details e-mail, once, and says plainly when it could not.
+* The overpayment note no longer promises an automatic refund. A surplus goes back only after the buyer names a wallet on the payment page, and a surplus below Cherum's minimum refund amount does not go back at all.
+* The credited amount is written as money: "$60.83 credited... the exact amount is 60.82758 USD" instead of a bare "60.82758", which a shop in another currency read as its own.
+* A refused refund is written on the order. Every refusal used to live only in the pop-up you then closed: no note, no log line, no reason.
+* Two deliberate refunds of the same amount, with the same reason, are two refunds. They shared an idempotency key, so the second was answered with the first and WooCommerce recorded a refund line for money that had left once. A retry after a timeout still replays the same request, which is what that key is for.
+* Refunds say up front that a rehearsal key cannot make them. The rehearsal notice says so too.
+* "Receipt from Cherum" checks, when you save, whether Cherum is sending buyer receipts at all, and tells you if it is not — rather than sending the buyer's e-mail address out of the store for a letter that cannot be sent.
+* The suggested privacy-policy text follows the settings instead of stating, always, that no e-mail address is sent.
 
 = 1.3.2 =
 * Paying a second time works. With "Leave it pending" set, an order whose invoice had expired sent the buyer straight back to the expired invoice — the only page they could reach was the one telling them it was too late. The plugin now checks the invoice before reusing it and asks for a fresh one when the old one is dead.

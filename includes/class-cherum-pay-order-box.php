@@ -70,7 +70,18 @@ class Cherum_Pay_Order_Box {
 			);
 		}
 		if ( '' !== $usd ) {
-			self::row( __( 'Credited', 'cherum-pay-for-woocommerce' ), '$' . esc_html( $usd ) );
+			/* THE CURRENCY IS PART OF THE NUMBER (1.3.3). This printed the raw
+			   figure the service sends — "$60.82758" — six decimals and a
+			   dollar sign glued to a value a shop in euros reads as euros.
+			   Cents first, the exact figure beside it, and the word USD said
+			   once so nobody has to assume it. */
+			self::row(
+				__( 'Credited', 'cherum-pay-for-woocommerce' ),
+				is_numeric( $usd )
+					? esc_html( '$' . number_format( (float) $usd, 2, '.', ',' ) . ' USD' )
+						. ' <span style="color:#646970">(' . esc_html( self::exact( $usd ) ) . ')</span>'
+					: esc_html( $usd )
+			);
 		}
 		echo '</tbody></table>';
 		if ( $url ) {
@@ -80,6 +91,19 @@ class Cherum_Pay_Order_Box {
 		if ( $order->is_paid() ) {
 			echo '<p class="description">' . esc_html__( 'To refund, use the Refund button under the items. Cherum returns the money to the buyer and the note here says what happened.', 'cherum-pay-for-woocommerce' ) . '</p>';
 		}
+	}
+
+	/**
+	 * The credited figure with nothing dropped: Cherum credits to six decimal
+	 * places, and rounding it away in the only place a shop owner reads it
+	 * would put the order screen at odds with the books.
+	 *
+	 * @param string $raw Amount as the service sent it.
+	 * @return string
+	 */
+	private static function exact( $raw ) {
+		$s = rtrim( rtrim( number_format( (float) $raw, 6, '.', '' ), '0' ), '.' );
+		return '' === $s ? '0' : $s;
 	}
 
 	/**

@@ -55,10 +55,19 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 		$this->icon = CHERUM_PAY_URL . 'assets/icon-128x128.png';
 
 		add_action( 'woocommerce_update_options_payment_gateways_' . $this->id, array( $this, 'process_admin_options' ) );
-		/* The discount is recomputed on every cart totals pass: a buyer flips
-		   between payment methods, and the line has to appear and disappear with
-		   the choice instead of sticking from the first render. */
-		add_action( 'woocommerce_cart_calculate_fees', array( $this, 'maybe_add_discount' ) );
+		/* THE DISCOUNT IS NOT HOOKED HERE ANY MORE (1.3.3). It used to be, and
+		   on the classic checkout it therefore never fired: WooCommerce builds
+		   the gateway objects lazily, on the first call to
+		   WC()->payment_gateways(), and all three classic paths total the cart
+		   BEFORE that happens — the checkout shortcode (calculate_totals, then
+		   the payment section), ?wc-ajax=update_order_review (calculate_totals
+		   four lines above woocommerce_order_review) and, worst of all,
+		   ?wc-ajax=checkout, where WC_Checkout::update_session() totals the cart
+		   and the order is written from those totals. So a shop with "Discount
+		   for paying in crypto" set collected the FULL price on the classic
+		   checkout, silently, for ever. The hook now lives in the plugin's main
+		   file, on plugins_loaded, where nothing has to be instantiated first;
+		   the handler is static and reads the setting from the option. */
 		/* Safety-net poll on the "order received" page: the one moment the
 		   buyer is guaranteed to come back. A lost webhook stops costing the
 		   buyer a "pending" screen right when they have just paid. */
@@ -120,6 +129,69 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 		}
 		$html .= '</span>';
 		return $html;
+	}
+
+	/**
+	 * Meta key holding EVERY invoice this order has ever had, one row each.
+	 *
+	 * `_cherum_invoice_id` is the CURRENT invoice and is overwritten on a
+	 * retry; this is the memory that is never overwritten.
+	 */
+	const INVOICE_LOG_META = '_cherum_invoice_seen';
+
+	/**
+	 * Every Cherum invoice ever minted for this order, oldest first.
+	 *
+	 * @param WC_Order $order Order.
+	 * @return string[]
+	 */
+	public static function invoice_history( $order ) {
+		$out = array();
+		$rows = $order->get_meta( self::INVOICE_LOG_META, false );
+		foreach ( (array) $rows as $row ) {
+			if ( is_object( $row ) ) {
+				$value = isset( $row->value ) ? $row->value : '';
+			} elseif ( is_array( $row ) ) {
+				$value = isset( $row['value'] ) ? $row['value'] : '';
+			} else {
+				$value = $row;
+			}
+			$value = (string) $value;
+			if ( '' !== $value && ! in_array( $value, $out, true ) ) {
+				$out[] = $value;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Tie an invoice to this order for good.
+	 *
+	 * THE ORDER MUST OUTLIVE ITS INVOICES (1.3.3). A retry mints a new invoice
+	 * and overwrites `_cherum_invoice_id`; from that moment the store had no
+	 * way back from the OLD invoice id to the order, and every notification
+	 * about it — money arriving late on its address, and worse, the plain
+	 * `invoice.confirmed` and `invoice.credited` of an expired invoice paid
+	 * inside the 24-hour late window — was answered "unknown_order" and
+	 * dropped without so much as a log line. A deposit address belongs to one
+	 * invoice for ever, so the event ALWAYS carries the old id; the order has
+	 * to remember it. Kept as repeated meta rows rather than a list in one
+	 * value so the lookup is an exact match on both order stores (a LIKE over
+	 * order meta is not something the classic storage can do).
+	 *
+	 * The caller saves the order.
+	 *
+	 * @param WC_Order $order Order.
+	 * @param string   $id    Cherum invoice id.
+	 */
+	public static function remember_invoice( $order, $id ) {
+		$id = (string) $id;
+		if ( '' === $id ) {
+			return;
+		}
+		if ( ! in_array( $id, self::invoice_history( $order ), true ) ) {
+			$order->add_meta_data( self::INVOICE_LOG_META, $id, false );
+		}
 	}
 
 	/**
@@ -246,7 +318,12 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 				'type'        => 'select',
 				'default'     => 'cancel',
 				'desc_tip'    => true,
-				'description' => __( 'Cancelling frees the stock. Leaving the order pending lets the buyer pay later from the link in their e-mail.', 'cherum-pay-for-woocommerce' ),
+				/* The e-mail this sentence promises is now actually sent — see
+				   Cherum_Pay_Webhook::mail_payment_link(). Until 1.3.3 it was
+				   not: WooCommerce sends a customer nothing for an order that
+				   stays pending, and the buyer's only way back was a browser
+				   tab they had probably closed. */
+				'description' => __( 'Cancelling frees the stock. Leaving the order pending keeps the order alive and e-mails the buyer its details, with a link to pay it, when the invoice expires — as long as WooCommerce\'s "Customer invoice / Order details" e-mail is switched on.', 'cherum-pay-for-woocommerce' ),
 				'options'     => array(
 					'cancel' => __( 'Cancel the order', 'cherum-pay-for-woocommerce' ),
 					'keep'   => __( 'Leave it pending', 'cherum-pay-for-woocommerce' ),
@@ -257,7 +334,7 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 				'type'        => 'checkbox',
 				'label'       => __( 'Send the buyer\'s e-mail address to Cherum so they get a payment receipt', 'cherum-pay-for-woocommerce' ),
 				'default'     => 'no',
-				'description' => __( 'Off by default: with it off, no personal data leaves your store.', 'cherum-pay-for-woocommerce' ),
+				'description' => __( 'Off by default: with it off, no personal data leaves your store. Cherum has to have buyer receipts switched on for the letter to be sent — the plugin checks when you save and tells you if it does not.', 'cherum-pay-for-woocommerce' ),
 			),
 			'debug'          => array(
 				'title'       => __( 'Write a log', 'cherum-pay-for-woocommerce' ),
@@ -349,29 +426,69 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 	 * this is neither a campaign nor something the buyer can keep. It appears
 	 * only while Cherum Pay is the selected method and disappears the moment it
 	 * is not, which is exactly what it means.
+	 *
+	 * STATIC, AND HOOKED FROM THE MAIN FILE (1.3.3). See the constructor: an
+	 * instance method hooked from the constructor is a method that never runs
+	 * on the classic checkout, because the gateway object does not exist yet
+	 * when the classic checkout totals the cart. Nothing here needs an
+	 * instance — the two settings it reads come from the option.
 	 */
-	public function maybe_add_discount() {
+	public static function add_crypto_discount() {
 		if ( is_admin() && ! wp_doing_ajax() ) {
 			return;
 		}
-		$pct = (float) $this->get_option( 'discount_pct', '0' );
+		/* The gateway's own availability, re-asked without an instance. The
+		   constructor hook used to imply this: no gateway, no discount. A
+		   disabled method, a store with no key or a currency Cherum cannot
+		   price must not take money off a cart nobody can pay with here. */
+		if ( 'yes' !== self::setting( 'enabled', 'no' ) || '' === self::setting( 'api_key' ) ) {
+			return;
+		}
+		if ( ! in_array( get_woocommerce_currency(), self::CURRENCIES, true ) ) {
+			return;
+		}
+		$pct = (float) self::setting( 'discount_pct', '0' );
 		if ( $pct <= 0 || $pct > 90 ) {
 			return;
 		}
-		if ( WC()->session && WC()->session->get( 'chosen_payment_method' ) !== $this->id ) {
+		if ( ! function_exists( 'WC' ) || ! WC()->session
+			|| WC()->session->get( 'chosen_payment_method' ) !== 'cherum_pay' ) {
 			return;
 		}
 		$cart = WC()->cart;
 		if ( ! $cart || $cart->is_empty() ) {
 			return;
 		}
-		$base  = $cart->get_subtotal() + $cart->get_subtotal_tax();
-		$off   = round( $base * $pct / 100, wc_get_price_decimals() );
+		/* WHAT THE BUYER IS ACTUALLY PAYING FOR THE GOODS, AFTER COUPONS
+		   (1.3.3). The base used to be the subtotal, which is the price BEFORE
+		   coupons: with a 50% coupon and a 2% crypto discount the shop handed
+		   back 2% of the full price — twice what it meant to — and at 90% next
+		   to a 50% coupon the cart total reached 0.00, at which point
+		   WooCommerce completes the order without calling any gateway at all.
+		   cart_contents_total is the post-coupon goods total and it is already
+		   final when fees are calculated (WC_Cart_Totals::calculate() runs
+		   calculate_item_totals before calculate_fee_totals), so no ordering
+		   assumption is being made here. Shipping stays out, as before: the
+		   discount is on the goods. */
+		$base = (float) $cart->get_cart_contents_total() + (float) $cart->get_cart_contents_tax();
+		if ( $base <= 0 ) {
+			return;
+		}
+		$off = round( $base * $pct / 100, wc_get_price_decimals() );
 		if ( $off <= 0 ) {
 			return;
 		}
-		$label = $this->get_option( 'discount_label' );
-		$cart->add_fee( $label ? $label : __( 'Crypto payment discount', 'cherum-pay-for-woocommerce' ), -$off, false );
+		$label = self::setting( 'discount_label' );
+		$cart->add_fee( '' !== $label ? $label : __( 'Crypto payment discount', 'cherum-pay-for-woocommerce' ), -$off, false );
+	}
+
+	/**
+	 * Kept so anything that hooked the old instance method still works.
+	 *
+	 * @deprecated 1.3.3 Use Cherum_Pay_Gateway::add_crypto_discount().
+	 */
+	public function maybe_add_discount() {
+		self::add_crypto_discount();
 	}
 
 	/**
@@ -407,8 +524,24 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 		}
 		$key = (string) $this->get_option( 'api_key' );
 		if ( '' !== $key && 0 === strpos( $key, 'chm_test_' ) ) {
+			/* THE EDGE OF THE REHEARSAL IS NAMED (1.3.3). The notice used to
+			   say orders look real and no money moves, and stopped there — so
+			   the first the shop owner heard of the one thing rehearsal cannot
+			   do was a refusal from the service after pressing Refund on a real
+			   order. Refunds move real money and Cherum will not open, price or
+			   cancel one for a test key. */
 			echo '<div class="notice notice-info inline"><p>'
 				. esc_html__( 'Rehearsal mode: this is a test key. Orders look real, the payment page shows a practice address, and no money moves. Swap in a live key when you are ready.', 'cherum-pay-for-woocommerce' )
+				. ' '
+				. esc_html__( 'Refunds are the one thing rehearsal does not cover: they move real money, so Cherum accepts them only from a live key.', 'cherum-pay-for-woocommerce' )
+				. '</p></div>';
+		}
+		/* The answer from the last save, repeated on every load: the shop owner
+		   who ignores an error message once should still see the state of the
+		   thing they switched on. */
+		if ( 'off' === (string) $this->get_option( 'receipt_feature' ) && 'yes' === $this->get_option( 'send_email', 'no' ) ) {
+			echo '<div class="notice notice-warning inline"><p>'
+				. esc_html__( 'Cherum is not sending buyer receipts at the moment, so "Receipt from Cherum" hands over the buyer\'s e-mail address for a letter that will not be sent. Turn it off until Cherum enables receipts.', 'cherum-pay-for-woocommerce' )
 				. '</p></div>';
 		}
 		/* WHOSE NAME THE BUYER SEES. The payment page prints the name and logo
@@ -473,7 +606,41 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 		$saved = parent::process_admin_options();
 		$this->init_settings();
 		$this->connect_notifications();
+		$this->check_receipt_feature();
 		return $saved;
+	}
+
+	/**
+	 * Does Cherum actually send buyer receipts right now?
+	 *
+	 * WHY THIS ASKS (1.3.3). "Receipt from Cherum" sends the buyer's e-mail
+	 * address out of the store so Cherum can e-mail them a receipt. Whether
+	 * Cherum sends that receipt is an operational switch on Cherum's side, and
+	 * it has been OFF in production since 29 August: every store that ticked
+	 * the box handed over a personal e-mail address for a letter that could
+	 * not be sent. The store had no way to know — so the key introspection
+	 * (`GET /me`) now reports it, and the answer is kept in the settings for
+	 * the notice on this screen. Asked only when the box is ticked: a store
+	 * that sends nothing personal has no question to ask.
+	 */
+	private function check_receipt_feature() {
+		if ( 'yes' !== $this->get_option( 'send_email', 'no' ) || '' === (string) $this->get_option( 'api_key' ) ) {
+			$this->update_option( 'receipt_feature', '' );
+			return;
+		}
+		$res = ( new Cherum_Pay_Api( (string) $this->get_option( 'api_key' ) ) )->me();
+		if ( ! $res['ok'] || ! isset( $res['data']['features'] ) ) {
+			// An older service, or no answer: say nothing rather than guess.
+			$this->update_option( 'receipt_feature', '' );
+			return;
+		}
+		$on = ! empty( $res['data']['features']['buyerReceipt'] );
+		$this->update_option( 'receipt_feature', $on ? 'on' : 'off' );
+		if ( ! $on && class_exists( 'WC_Admin_Settings' ) ) {
+			WC_Admin_Settings::add_error(
+				__( 'Cherum Pay: "Receipt from Cherum" is on, but Cherum is not sending buyer receipts at the moment. The buyer\'s e-mail address would leave your store for a letter that will not be sent — turn the setting off until Cherum enables receipts.', 'cherum-pay-for-woocommerce' )
+			);
+		}
 	}
 
 	/**
@@ -690,6 +857,11 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 			} elseif ( '' !== $status ) {
 				++$attempt;
 				$order->update_meta_data( '_cherum_pay_attempt', (string) $attempt );
+				/* The invoice about to be replaced is written into the order's
+				   memory HERE, before it stops being the current one: an order
+				   created by an older version has no history yet, and this is
+				   the last moment its old invoice can still be recorded. */
+				self::remember_invoice( $order, $known );
 				$order->save();
 				self::log( 'order ' . $order->get_id() . ': invoice ' . $known . ' is ' . $status . ' — asking for a new one (attempt ' . $attempt . ')' );
 			}
@@ -778,6 +950,7 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 		// the redirect: the buyer may pay before the browser comes back.
 		$is_new_invoice = ( $id !== $known );
 		$order->update_meta_data( '_cherum_invoice_id', $id );
+		self::remember_invoice( $order, $id );
 		$order->update_meta_data( '_cherum_checkout_url', $url );
 		/* The invoice's own USD value and the order total AT CREATION. Refunds
 		   are quoted in dollars; for a shop in another currency the pair gives
@@ -947,6 +1120,24 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 	 * from the order, the amount and the reason: the retry returns the SAME
 	 * refund instead of creating another.
 	 *
+	 * AND WHY THE KEY ALSO CARRIES A SEQUENCE (1.3.3). That key was the same
+	 * for two DELIBERATE refunds of the same amount with the same reason — two
+	 * £10 refunds a week apart, reason left blank — so the service replayed the
+	 * first request (its own answer to a repeated key on an open request is a
+	 * 200 with the refund it already has), the plugin read "ok" and returned
+	 * true, and WooCommerce wrote a SECOND refund line for money that left
+	 * once. The books then said more had been refunded than had been. The
+	 * sequence moves on only after a refund is accepted, so a retry after a
+	 * timeout still replays — which is the property that key was there for —
+	 * while a second deliberate refund gets a key of its own. The refund ids
+	 * this order has already had are kept as well, and an answer repeating one
+	 * of them is refused rather than counted twice.
+	 *
+	 * A REFUSAL IS WRITTEN DOWN (1.3.3). Every "no" below used to exist only
+	 * in the pop-up the shop owner then closed: no order note, no log line, and
+	 * the reason gone. Now each one is on the order, where the next person to
+	 * look can read it.
+	 *
 	 * @param int    $order_id Order being refunded.
 	 * @param float  $amount   Amount in the shop currency; null means full.
 	 * @param string $reason   Reason typed by the shop owner.
@@ -959,21 +1150,36 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 		}
 		$invoice_id = $order->get_meta( '_cherum_invoice_id' );
 		if ( ! $invoice_id ) {
-			return new WP_Error(
+			return self::refund_refused(
+				$order,
 				'cherum_no_invoice',
 				__( 'This order was not paid through Cherum Pay, so there is nothing to refund here.', 'cherum-pay-for-woocommerce' )
 			);
 		}
 		$key = $this->get_option( 'api_key' );
 		if ( ! $key ) {
-			return new WP_Error(
+			return self::refund_refused(
+				$order,
 				'cherum_no_key',
 				__( 'Add your Cherum API key in the payment settings before refunding.', 'cherum-pay-for-woocommerce' )
 			);
 		}
+		/* REHEARSAL STOPS AT REFUNDS, AND IT SAYS SO HERE (1.3.3). A test key
+		   is refused by the service on both the quote and the refund itself
+		   ("Refunds move real money — call this with a chm_live_ key"), and the
+		   shop owner used to learn that only after pressing the button on a
+		   real order. Two network calls and a raw service refusal, for
+		   something knowable from the key. */
+		if ( 0 === strpos( (string) $key, 'chm_test_' ) ) {
+			return self::refund_refused(
+				$order,
+				'cherum_test_key',
+				__( 'This store is connected with a rehearsal key (chm_test_), and rehearsal does not cover refunds — they move real money. Connect a live key (chm_live_) to refund through Cherum, or refund this order by another route.', 'cherum-pay-for-woocommerce' )
+			);
+		}
 		$amount = null === $amount ? (float) $order->get_total() : (float) $amount;
 		if ( $amount <= 0 ) {
-			return new WP_Error( 'cherum_bad_amount', __( 'Enter an amount above zero.', 'cherum-pay-for-woocommerce' ) );
+			return self::refund_refused( $order, 'cherum_bad_amount', __( 'Enter an amount above zero.', 'cherum-pay-for-woocommerce' ) );
 		}
 
 		/* Refunds are quoted in US dollars. In 1.1.0 the shop-currency amount
@@ -987,7 +1193,8 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 			$usd   = (float) $order->get_meta( '_cherum_invoice_usd' );
 			$total = (float) $order->get_meta( '_cherum_order_total' );
 			if ( $usd <= 0 || $total <= 0 ) {
-				return new WP_Error(
+				return self::refund_refused(
+					$order,
 					'cherum_refund_currency',
 					__( 'This order predates exchange-rate tracking, so the refund amount cannot be converted to dollars safely. Refund it from the Cherum dashboard instead.', 'cherum-pay-for-woocommerce' )
 				);
@@ -1010,30 +1217,58 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 		   where nobody answered; every HTTP code is an answer. */
 		$quote = $api->refund_quote( $invoice_id, $amount_usd );
 		if ( ! $quote['ok'] && 0 !== (int) $quote['status'] ) {
-			return new WP_Error(
+			return self::refund_refused(
+				$order,
 				'cherum_refund_unavailable',
 				'' !== $quote['error']
 					? $quote['error']
-					: __( 'Cherum could not price this refund.', 'cherum-pay-for-woocommerce' )
+					: __( 'Cherum could not price this refund.', 'cherum-pay-for-woocommerce' ),
+				$amount
 			);
 		}
 		if ( ! $quote['ok'] ) {
 			self::log( 'refund quote unreachable for order ' . $order_id . ' (' . $quote['error'] . ') — going ahead with the refund' );
 		}
 
-		$idem = 'wc-' . $order_id . '-' . md5( $invoice_id . '|' . $amount_usd . '|' . $reason );
-		$res  = $api->create_refund( $invoice_id, $amount_usd, (string) $reason, $idem );
+		$signature = md5( $invoice_id . '|' . $amount_usd . '|' . $reason );
+		$seq       = (int) $order->get_meta( '_cherum_refund_seq_' . $signature );
+		$idem      = 'wc-' . $order_id . '-' . $signature . ( $seq > 0 ? '-' . $seq : '' );
+		$res       = $api->create_refund( $invoice_id, $amount_usd, (string) $reason, $idem );
 		if ( ! $res['ok'] ) {
-			return new WP_Error(
+			return self::refund_refused(
+				$order,
 				'cherum_refund_failed',
-				$res['error'] ? $res['error'] : __( 'Cherum did not accept the refund.', 'cherum-pay-for-woocommerce' )
+				$res['error'] ? $res['error'] : __( 'Cherum did not accept the refund.', 'cherum-pay-for-woocommerce' ),
+				$amount
 			);
 		}
+
+		$rid  = isset( $res['data']['refund']['id'] ) ? (string) $res['data']['refund']['id'] : '';
+		$had  = self::refund_ids( $order );
+		if ( '' !== $rid && in_array( $rid, $had, true ) ) {
+			/* The service handed back a refund this order has already been
+			   credited with. Counting it again would put a second refund line
+			   in the books for money that left once. */
+			return self::refund_refused(
+				$order,
+				'cherum_refund_duplicate',
+				sprintf(
+					/* translators: %s: the refund id already recorded on this order. */
+					__( 'Cherum answered with refund %s, which is already recorded on this order — nothing new was refunded. If you meant a second refund, wait until the first one is paid out, or give this one a different reason so the two can be told apart.', 'cherum-pay-for-woocommerce' ),
+					$rid
+				),
+				$amount
+			);
+		}
+		if ( '' !== $rid ) {
+			$order->add_meta_data( '_cherum_refund_ids', $rid, false );
+		}
+		$order->update_meta_data( '_cherum_refund_seq_' . $signature, (string) ( $seq + 1 ) );
+		$order->save();
 
 		/* The note says PENDING on purpose. The money leaves after the payer
 		   names a wallet on the payment page — telling the shop owner "refunded"
 		   before that happens would be a promise we do not control. */
-		$rid = isset( $res['data']['refund']['id'] ) ? $res['data']['refund']['id'] : '';
 		$order->add_order_note(
 			sprintf(
 				/* translators: 1: amount, 2: refund id */
@@ -1042,8 +1277,63 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 				$rid ? $rid : __( 'no id returned', 'cherum-pay-for-woocommerce' )
 			)
 		);
-		self::log( 'refund requested for order ' . $order_id . ': ' . $amount_usd . ' USD' );
+		self::log( 'refund requested for order ' . $order_id . ': ' . $amount_usd . ' USD (' . ( '' !== $rid ? $rid : 'no id' ) . ')' );
 		return true;
+	}
+
+	/**
+	 * Every Cherum refund id already recorded on this order.
+	 *
+	 * @param WC_Order $order Order.
+	 * @return string[]
+	 */
+	private static function refund_ids( $order ) {
+		$out = array();
+		foreach ( (array) $order->get_meta( '_cherum_refund_ids', false ) as $row ) {
+			if ( is_object( $row ) ) {
+				$value = isset( $row->value ) ? $row->value : '';
+			} elseif ( is_array( $row ) ) {
+				$value = isset( $row['value'] ) ? $row['value'] : '';
+			} else {
+				$value = $row;
+			}
+			if ( '' !== (string) $value ) {
+				$out[] = (string) $value;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Refuse a refund, and leave the reason where it can be found later.
+	 *
+	 * The pop-up that carries this message is closed a second after it opens.
+	 * The order note is the copy that survives — and it matters more than the
+	 * log, which most shops leave switched off.
+	 *
+	 * @param WC_Order   $order   Order.
+	 * @param string     $code    Machine-readable code for WP_Error.
+	 * @param string     $message Sentence for the shop owner.
+	 * @param float|null $amount  Amount asked for, in shop currency.
+	 * @return WP_Error
+	 */
+	private static function refund_refused( $order, $code, $message, $amount = null ) {
+		self::log( 'refund refused for order ' . $order->get_id() . ' [' . $code . ']: ' . $message );
+		$order->add_order_note(
+			null === $amount
+				? sprintf(
+					/* translators: %s: reason the refund was refused. */
+					__( 'Cherum Pay: the refund was not accepted — %s', 'cherum-pay-for-woocommerce' ),
+					$message
+				)
+				: sprintf(
+					/* translators: 1: amount asked for, 2: reason the refund was refused. */
+					__( 'Cherum Pay: a refund of %1$s was not accepted — %2$s', 'cherum-pay-for-woocommerce' ),
+					wp_strip_all_tags( wc_price( $amount ) ),
+					$message
+				)
+		);
+		return new WP_Error( $code, $message );
 	}
 
 	/**

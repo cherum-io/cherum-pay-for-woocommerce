@@ -201,6 +201,14 @@ class Cherum_Pay_Webhook {
 			: ( isset( $event['data']['id'] ) ? sanitize_text_field( (string) $event['data']['id'] ) : '' );
 		$order      = self::find_order( $invoice_id );
 		if ( ! $order ) {
+			/* SAID OUT LOUD (1.3.3). This branch used to return before the log
+			   line below, so a store with logging on saw nothing at all for an
+			   event it had just dropped — the one case where the shop owner
+			   most needs a trace. */
+			Cherum_Pay_Gateway::log(
+				'webhook ignored: ' . (string) $event['type'] . ' for ' . $invoice_id
+				. ' — no order in this store carries that invoice'
+			);
 			// 200 on purpose: the invoice may belong to another store sharing
 			// the key, and making the sender retry an order we will never have
 			// is noise for both sides.
@@ -230,6 +238,17 @@ class Cherum_Pay_Webhook {
 	/**
 	 * Find the order that carries this invoice id.
 	 *
+	 * TWO KEYS, NOT ONE (1.3.3). `_cherum_invoice_id` is the CURRENT invoice
+	 * and a retry overwrites it, so an order that has been paid for twice —
+	 * "Leave it pending", the buyer comes back an hour later — no longer
+	 * answered to its first invoice at all. Everything about that invoice was
+	 * then dropped with "unknown_order": money arriving late on its deposit
+	 * address, and also the ordinary `invoice.confirmed` / `invoice.credited`
+	 * of an expired invoice that IS paid inside the 24-hour late window, which
+	 * left a paid order sitting unpaid in WooCommerce with no note and no log
+	 * line. `_cherum_invoice_seen` holds every invoice the order ever had, so
+	 * the old id still finds it.
+	 *
 	 * @param string $invoice_id Cherum invoice id.
 	 * @return WC_Order|null
 	 */
@@ -237,14 +256,149 @@ class Cherum_Pay_Webhook {
 		if ( '' === $invoice_id ) {
 			return null;
 		}
-		$orders = wc_get_orders(
-			array(
-				'limit'      => 1,
-				'meta_key'   => '_cherum_invoice_id', // phpcs:ignore WordPress.DB.SlowDBQuery
-				'meta_value' => $invoice_id,          // phpcs:ignore WordPress.DB.SlowDBQuery
-			)
+		foreach ( array( '_cherum_invoice_id', Cherum_Pay_Gateway::INVOICE_LOG_META ) as $meta_key ) {
+			$orders = wc_get_orders(
+				array(
+					'limit'      => 1,
+					'meta_key'   => $meta_key,   // phpcs:ignore WordPress.DB.SlowDBQuery
+					'meta_value' => $invoice_id, // phpcs:ignore WordPress.DB.SlowDBQuery
+				)
+			);
+			if ( ! empty( $orders ) && $orders[0] instanceof WC_Order ) {
+				return $orders[0];
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * A dollar figure a person reads, from a number with six decimals.
+	 *
+	 * @param mixed $raw Amount as the service sent it.
+	 * @return string
+	 */
+	private static function usd( $raw ) {
+		return is_numeric( $raw ) ? '$' . number_format( (float) $raw, 2, '.', ',' ) : (string) $raw;
+	}
+
+	/**
+	 * The same figure with nothing dropped, for the books.
+	 *
+	 * @param mixed $raw Amount as the service sent it.
+	 * @return string
+	 */
+	private static function exact( $raw ) {
+		if ( ! is_numeric( $raw ) ) {
+			return (string) $raw;
+		}
+		$s = rtrim( rtrim( number_format( (float) $raw, 6, '.', '' ), '0' ), '.' );
+		return '' === $s ? '0' : $s;
+	}
+
+	/**
+	 * What a dollar figure is worth in the shop's own currency, at THIS
+	 * order's rate — the pair stored when the invoice was created.
+	 *
+	 * Empty for a shop already in dollars, and empty for an order minted
+	 * before the rate was recorded: a converted number invented from nothing
+	 * is worse than no number.
+	 *
+	 * @param WC_Order $order Order.
+	 * @param mixed    $usd   Amount in dollars.
+	 * @return string Sentence to append to a note, or ''.
+	 */
+	private static function in_store_currency( $order, $usd ) {
+		if ( ! is_numeric( $usd ) || 'USD' === $order->get_currency() ) {
+			return '';
+		}
+		$invoice_usd = (float) $order->get_meta( '_cherum_invoice_usd' );
+		$order_total = (float) $order->get_meta( '_cherum_order_total' );
+		if ( $invoice_usd <= 0 || $order_total <= 0 ) {
+			return '';
+		}
+		return ' ' . sprintf(
+			/* translators: %s: the same amount in the shop's currency. */
+			__( 'At this order\'s own rate that is %s.', 'cherum-pay-for-woocommerce' ),
+			wp_strip_all_tags( wc_price( (float) $usd * $order_total / $invoice_usd ) )
 		);
-		return ( ! empty( $orders ) && $orders[0] instanceof WC_Order ) ? $orders[0] : null;
+	}
+
+	/**
+	 * How much arrived late, in the plainest terms the event allows.
+	 *
+	 * `usd` is the figure a shop owner can act on; `amountAtomic` is the exact
+	 * chain amount and is kept when there is no price. The event carries no
+	 * decimals for the asset, so the atomic number is shown as what it is
+	 * rather than dressed up as a coin amount.
+	 *
+	 * @param array $data Event payload.
+	 * @return string
+	 */
+	private static function late_amount( $data ) {
+		if ( isset( $data['usd'] ) && is_numeric( $data['usd'] ) ) {
+			return '~' . self::usd( $data['usd'] );
+		}
+		if ( isset( $data['amount'] ) && '' !== (string) $data['amount'] ) {
+			return (string) $data['amount']; // older services, and the cabinet's own simulator
+		}
+		if ( isset( $data['amountAtomic'] ) && '' !== (string) $data['amountAtomic'] ) {
+			return sprintf(
+				/* translators: %s: amount in the coin's smallest units. */
+				__( '%s in the coin\'s smallest units', 'cherum-pay-for-woocommerce' ),
+				(string) $data['amountAtomic']
+			);
+		}
+		return __( 'amount in dashboard', 'cherum-pay-for-woocommerce' );
+	}
+
+	/**
+	 * Which coin on which network arrived late.
+	 *
+	 * @param array $data Event payload.
+	 * @return string
+	 */
+	private static function late_rail( $data ) {
+		$asset = strtoupper( (string) ( $data['asset'] ?? '' ) );
+		$chain = (string) ( $data['chain'] ?? '' );
+		if ( '' !== $asset && '' !== $chain ) {
+			return $asset . ' · ' . $chain;
+		}
+		$one = '' !== $asset ? $asset : $chain;
+		return '' !== $one ? $one : __( 'coin shown in the dashboard', 'cherum-pay-for-woocommerce' );
+	}
+
+	/**
+	 * E-mail the buyer WooCommerce's own order details, which carry the "pay"
+	 * link for a pending order.
+	 *
+	 * Once per order, and only when it can really be sent: no address, the
+	 * e-mail switched off in WooCommerce, or an e-mail already sent all mean
+	 * "no", and the caller says so in the note rather than promising.
+	 *
+	 * @param WC_Order $order Order.
+	 * @return bool Whether an e-mail was sent.
+	 */
+	private static function mail_payment_link( $order ) {
+		if ( '' !== (string) $order->get_meta( '_cherum_pay_link_mailed' ) ) {
+			return false;
+		}
+		if ( ! function_exists( 'is_email' ) || ! is_email( $order->get_billing_email() ) ) {
+			return false;
+		}
+		if ( ! function_exists( 'WC' ) ) {
+			return false;
+		}
+		$mailer = WC()->mailer();
+		$email  = ( $mailer && isset( $mailer->emails['WC_Email_Customer_Invoice'] ) )
+			? $mailer->emails['WC_Email_Customer_Invoice'] : null;
+		if ( ! $email || ! $email->is_enabled() ) {
+			return false;
+		}
+		$order->update_meta_data( '_cherum_pay_link_mailed', (string) time() );
+		$order->save();
+		$email->trigger( $order->get_id(), $order );
+		Cherum_Pay_Gateway::log( 'order ' . $order->get_id() . ': invoice expired, order details e-mailed to the buyer' );
+		return true;
 	}
 
 	/**
@@ -311,12 +465,23 @@ class Cherum_Pay_Webhook {
 					}
 				}
 				if ( isset( $data['creditedUsd'] ) ) {
+					/* MONEY WITH ITS UNIT ON IT (1.3.3). The note used to print
+					   the raw number — "60.82758 credited to your balance" —
+					   with no currency and six decimal places. A shop owner in
+					   euros read that as euros beside an order of €52.92 and
+					   their books looked inflated. Cherum credits in US
+					   dollars, to six decimals on purpose (the atomic amount
+					   travels in the same message and rounding to cents would
+					   contradict it), so the note now names the currency, leads
+					   with cents, and keeps the exact figure beside it. */
 					$order->add_order_note(
 						sprintf(
-							/* translators: %s: amount credited, in US dollars. */
-							__( 'Cherum Pay: %s credited to your balance after fees.', 'cherum-pay-for-woocommerce' ),
-							esc_html( (string) $data['creditedUsd'] )
+							/* translators: 1: amount in dollars, 2: exact amount to six decimals. */
+							__( 'Cherum Pay: %1$s credited to your Cherum balance after fees. Cherum credits in US dollars; the exact amount is %2$s USD.', 'cherum-pay-for-woocommerce' ),
+							esc_html( self::usd( $data['creditedUsd'] ) ),
+							esc_html( self::exact( $data['creditedUsd'] ) )
 						)
+						. self::in_store_currency( $order, $data['creditedUsd'] )
 					);
 				}
 				break;
@@ -337,14 +502,37 @@ class Cherum_Pay_Webhook {
 				break;
 
 			case 'invoice.overpaid':
+				/* WHAT ACTUALLY HAPPENS TO THE SURPLUS (1.3.3). This note used
+				   to say the surplus goes back "automatically — you do
+				   nothing", while the payment page told the buyer the opposite
+				   in the same minute: a refund of an overpayment is started BY
+				   THE BUYER, who has to name a wallet on the payment page, and
+				   a surplus below Cherum's minimum refund amount is not sent
+				   back at all. A shop owner who believed the note would tell a
+				   complaining customer to wait for money that was never
+				   coming. */
 				$order->add_order_note(
-					__( 'Cherum Pay: more than the invoice was received. The surplus is returned to the buyer automatically — you do nothing.', 'cherum-pay-for-woocommerce' )
+					__( 'Cherum Pay: more than the invoice was received. The surplus does NOT go back on its own — the buyer is offered it on the payment page and has to give a wallet address for it, and a surplus below Cherum\'s minimum refund amount is not returned at all. Nothing is owed by you; if the buyer asks, the surplus is under Accept → Refunds in the Cherum dashboard.', 'cherum-pay-for-woocommerce' )
 				);
 				break;
 
 			case 'invoice.expired':
 				if ( 'keep' === Cherum_Pay_Gateway::setting( 'expired_action', 'cancel' ) ) {
-					$order->add_order_note( __( 'Cherum Pay: the invoice expired without payment. The order stays pending, as set in the gateway settings; the buyer can pay again from the link in their e-mail.', 'cherum-pay-for-woocommerce' ) );
+					/* THE E-MAIL THE NOTE PROMISED (1.3.3). Both this note and
+					   the setting's own description told the shop owner the
+					   buyer could "pay again from the link in their e-mail" —
+					   and WooCommerce sends a customer no e-mail whatsoever
+					   for an order that stays pending. The buyer's only way
+					   back was a browser tab. WooCommerce's own "Customer
+					   invoice / Order details" e-mail is exactly that link, so
+					   the plugin sends it, once per order; when it cannot (no
+					   address, the e-mail switched off in WooCommerce, already
+					   sent) the note says so instead of promising. */
+					$order->add_order_note(
+						self::mail_payment_link( $order )
+							? __( 'Cherum Pay: the invoice expired without payment. The order stays pending, as set in the gateway settings, and the buyer has been e-mailed the order details with a link to pay it.', 'cherum-pay-for-woocommerce' )
+							: __( 'Cherum Pay: the invoice expired without payment. The order stays pending, as set in the gateway settings. The buyer was NOT e-mailed a payment link — send one with Order actions → "Send order details to customer", or they have no way back to this order.', 'cherum-pay-for-woocommerce' )
+					);
 					break;
 				}
 				if ( ! $order->is_paid() ) {
@@ -401,13 +589,21 @@ class Cherum_Pay_Webhook {
 				   AFTER the invoice closed — typically after this very plugin
 				   cancelled the order on invoice.expired. Nothing is credited
 				   automatically; the shop owner decides. The note must carry
-				   everything needed to decide. */
+				   everything needed to decide.
+				   READ FROM THE FIELDS THE SERVICE ACTUALLY SENDS (1.3.3). It
+				   read `amount` and `txHash`; this event carries neither. The
+				   documented body is
+				   {id, ledgerId, asset, chain, amountAtomic, usd, arrivedAt,
+				   decideBy}, so every live note in a shop read "(amount in
+				   dashboard, tx —)" — the one note whose whole job is to carry
+				   the figures. */
 				$order->add_order_note(
 					sprintf(
-						/* translators: 1: amount, 2: transaction hash. */
-						__( 'Cherum Pay: A PAYMENT ARRIVED AFTER THE INVOICE CLOSED (%1$s, tx %2$s). The money is safe but NOT credited. Decide in the Cherum dashboard under Accept → Refunds: credit it to this order or send it back.', 'cherum-pay-for-woocommerce' ),
-						esc_html( (string) ( $data['amount'] ?? __( 'amount in dashboard', 'cherum-pay-for-woocommerce' ) ) ),
-						esc_html( (string) ( $data['txHash'] ?? '—' ) )
+						/* translators: 1: amount, 2: coin and network, 3: the date by which the shop owner has to decide. */
+						__( 'Cherum Pay: A PAYMENT ARRIVED AFTER THE INVOICE CLOSED (%1$s, %2$s). The money is safe but NOT credited. Decide in the Cherum dashboard under Accept → Refunds by %3$s: credit it to this order or send it back.', 'cherum-pay-for-woocommerce' ),
+						esc_html( self::late_amount( $data ) ),
+						esc_html( self::late_rail( $data ) ),
+						esc_html( (string) ( $data['decideBy'] ?? __( 'the date shown in the dashboard', 'cherum-pay-for-woocommerce' ) ) )
 					)
 				);
 				break;

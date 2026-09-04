@@ -141,6 +141,26 @@ class Cherum_Pay_Api {
 	}
 
 	/**
+	 * What this key is, and what the service can currently do for it.
+	 *
+	 * The `features` block is why this call exists in the plugin: a setting
+	 * that promises the buyer a receipt is a lie whenever Cherum has buyer
+	 * receipts switched off, and there was no way for a store to know.
+	 *
+	 * @return array{ok:bool,data:array,error:string,status:int}
+	 */
+	public function me() {
+		$res = wp_remote_get(
+			self::BASE . '/me',
+			array(
+				'headers' => array( 'Authorization' => 'token ' . $this->key ),
+				'timeout' => 15,
+			)
+		);
+		return $this->unwrap( $res );
+	}
+
+	/**
 	 * The notification endpoints registered for this key.
 	 *
 	 * Doubles as the connection check: it is the cheapest call that proves
