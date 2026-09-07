@@ -3,7 +3,7 @@
  * Plugin Name:       Cherum Pay for WooCommerce
  * Plugin URI:        https://cherum.io/woocommerce
  * Description:       Accept stablecoin payments in your WooCommerce store through Cherum Pay. The buyer picks the coin and the network; you get paid in the asset you chose.
- * Version:           1.3.3
+ * Version:           1.3.4
  * Requires at least: 6.5
  * Requires PHP:      7.4
  * Requires Plugins:  woocommerce
@@ -23,7 +23,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'CHERUM_PAY_VERSION', '1.3.3' );
+define( 'CHERUM_PAY_VERSION', '1.3.4' );
 define( 'CHERUM_PAY_FILE', __FILE__ );
 define( 'CHERUM_PAY_PATH', plugin_dir_path( __FILE__ ) );
 define( 'CHERUM_PAY_URL', plugin_dir_url( __FILE__ ) );
@@ -84,14 +84,12 @@ add_action(
 		 * hook now instead of by a second one. */
 		add_action( 'woocommerce_cart_calculate_fees', array( 'Cherum_Pay_Gateway', 'add_crypto_discount' ) );
 
-		/* Translations. Without this call the bundled .po/.mo never load on a
-		   self-installed copy — "Russian included" was factually untrue in
-		   1.1.0 and the settings stayed English for everyone. */
-		load_plugin_textdomain(
-			'cherum-pay-for-woocommerce',
-			false,
-			dirname( plugin_basename( CHERUM_PAY_FILE ) ) . '/languages'
-		);
+		/* Translations are not bundled. Since WordPress 4.6 the core loads a
+		   plugin's translations just in time from translate.wordpress.org, so
+		   neither a languages/ directory with .po/.mo files nor a
+		   textdomain-loading call is needed for a directory-hosted plugin
+		   (both were flagged by the WordPress.org review of 5 Sep 2026). The
+		   template languages/cherum-pay-for-woocommerce.pot stays for translators. */
 
 		/* SAFETY-NET POLL. A webhook can be lost (secret unset, host firewall,
 		   downtime) and 1.1.0 left such orders pending forever. A lost

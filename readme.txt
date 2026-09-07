@@ -4,7 +4,7 @@ Tags: woocommerce, cryptocurrency, payment gateway, usdc, stablecoin
 Requires at least: 6.5
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.3.3
+Stable tag: 1.3.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -98,6 +98,10 @@ Yes, with the classic checkout and with the Cart and Checkout blocks. Nothing to
 5. Settings: one key, connected.
 
 == Changelog ==
+
+= 1.3.4 =
+* Packaging only, for the WordPress.org directory review: the listing images (banner, icon, screenshots) and the bundled Russian translation are no longer inside the plugin; translations come from translate.wordpress.org. The payment method's logo at checkout is the plugin's own file.
+* No change in behaviour.
 
 = 1.3.3 =
 * The crypto discount now works on the classic checkout. It never had: the discount was hooked from the payment method's own object, and on a classic checkout that object does not exist yet when the cart is totalled — so the order was written at the full price, with no sign anywhere that a discount had been set.

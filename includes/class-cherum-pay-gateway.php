@@ -52,7 +52,10 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 		/* The classic checkout shows methods with logos; ours had none in
 		   1.1.0 and looked like the odd one out on the very screen where the
 		   buyer decides. */
-		$this->icon = CHERUM_PAY_URL . 'assets/icon-128x128.png';
+		/* The method logo is the plugin's own file. It used to be the directory
+		   icon (icon-128x128.png), which the WordPress.org review treats as a
+		   listing asset that does not belong in the zip (review of 5 Sep 2026). */
+		$this->icon = CHERUM_PAY_URL . 'assets/logo-128.png';
 
 		add_action( 'woocommerce_update_options_payment_gateways_' . $this->id, array( $this, 'process_admin_options' ) );
 		/* THE DISCOUNT IS NOT HOOKED HERE ANY MORE (1.3.3). It used to be, and
