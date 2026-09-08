@@ -3,7 +3,7 @@
  * Plugin Name:       Cherum Pay for WooCommerce
  * Plugin URI:        https://cherum.io/woocommerce
  * Description:       Accept stablecoin payments in your WooCommerce store through Cherum Pay. The buyer picks the coin and the network; you get paid in the asset you chose.
- * Version:           1.3.4
+ * Version:           1.3.5
  * Requires at least: 6.5
  * Requires PHP:      7.4
  * Requires Plugins:  woocommerce
@@ -23,7 +23,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'CHERUM_PAY_VERSION', '1.3.4' );
+define( 'CHERUM_PAY_VERSION', '1.3.5' );
 define( 'CHERUM_PAY_FILE', __FILE__ );
 define( 'CHERUM_PAY_PATH', plugin_dir_path( __FILE__ ) );
 define( 'CHERUM_PAY_URL', plugin_dir_url( __FILE__ ) );
@@ -83,6 +83,25 @@ add_action(
 		 * The block checkout kept working either way; it is covered by the same
 		 * hook now instead of by a second one. */
 		add_action( 'woocommerce_cart_calculate_fees', array( 'Cherum_Pay_Gateway', 'add_crypto_discount' ) );
+
+		/* AND THE CLASSIC CHECKOUT HAS TO BE TOLD TO RE-TOTAL (1.3.5).
+		 *
+		 * Since 1.3.3 the fee above appears on the classic checkout — but the
+		 * classic checkout never refreshes its totals when the buyer changes
+		 * the payment method (WooCommerce binds only its own
+		 * payment_method_selected there), so the figure on screen froze at
+		 * whichever method was selected when the page last updated. Both
+		 * directions were seen on the live demo: the order button pressed under
+		 * "Total $54.00" wrote an order of $52.92, and a buyer who picked crypto
+		 * and then a cheque was left looking at "−$1.08 / Total $52.92" while
+		 * the order was written at $54.00. The script below asks WooCommerce for
+		 * its own update on that change; hooked on the classic payment template
+		 * because is_checkout() is true on a block checkout too.
+		 *
+		 * The block checkout never needed this — it re-totals through the Store
+		 * API on every change and reports the choice itself (see the update
+		 * callback at the bottom of this file). */
+		add_action( 'woocommerce_review_order_before_payment', array( 'Cherum_Pay_Gateway', 'enqueue_classic_checkout' ) );
 
 		/* Translations are not bundled. Since WordPress 4.6 the core loads a
 		   plugin's translations just in time from translate.wordpress.org, so

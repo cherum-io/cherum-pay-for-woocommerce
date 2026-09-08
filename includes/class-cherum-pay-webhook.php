@@ -296,12 +296,20 @@ class Cherum_Pay_Webhook {
 	}
 
 	/**
-	 * What a dollar figure is worth in the shop's own currency, at THIS
+	 * What a dollar figure is worth in the ORDER's own currency, at THIS
 	 * order's rate — the pair stored when the invoice was created.
 	 *
-	 * Empty for a shop already in dollars, and empty for an order minted
+	 * Empty for an order already in dollars, and empty for an order minted
 	 * before the rate was recorded: a converted number invented from nothing
 	 * is worse than no number.
+	 *
+	 * IN THE ORDER'S CURRENCY, PRINTED WITH THE ORDER'S SYMBOL (1.3.5). The
+	 * conversion has always used the order's own rate; the printing used
+	 * wc_price() with no currency, which takes the SHOP's current one. On a
+	 * shop that has since changed currency — or on any shop with a
+	 * multi-currency plugin, where the two differ by design — this method
+	 * converted to euros and wrote a dollar sign in front of them. See
+	 * Cherum_Pay_Gateway::money().
 	 *
 	 * @param WC_Order $order Order.
 	 * @param mixed    $usd   Amount in dollars.
@@ -317,9 +325,9 @@ class Cherum_Pay_Webhook {
 			return '';
 		}
 		return ' ' . sprintf(
-			/* translators: %s: the same amount in the shop's currency. */
+			/* translators: %s: the same amount in the order's currency. */
 			__( 'At this order\'s own rate that is %s.', 'cherum-pay-for-woocommerce' ),
-			wp_strip_all_tags( wc_price( (float) $usd * $order_total / $invoice_usd ) )
+			Cherum_Pay_Gateway::money( $order, (float) $usd * $order_total / $invoice_usd )
 		);
 	}
 
@@ -371,12 +379,33 @@ class Cherum_Pay_Webhook {
 	 * E-mail the buyer WooCommerce's own order details, which carry the "pay"
 	 * link for a pending order.
 	 *
-	 * Once per order, and only when it can really be sent: no address, the
-	 * e-mail switched off in WooCommerce, or an e-mail already sent all mean
-	 * "no", and the caller says so in the note rather than promising.
+	 * Once per order, and the answer is the TRUTH about that one attempt: it is
+	 * read straight from wp_mail, because the caller prints one note when the
+	 * buyer has a way back and a different one when they have not.
+	 *
+	 * IT USED TO SEND NOTHING, EVER (1.3.5, and this is the correction of a
+	 * 1.3.3 claim). The guard here was `! $email->is_enabled()`, and for THIS
+	 * e-mail that condition is false for all time: "Order details" is a MANUAL
+	 * e-mail — WC_Email_Customer_Invoice::init_form_fields() has no "enabled"
+	 * field at all, so the option does not exist, cannot be switched on from
+	 * the WooCommerce settings screen, and is_enabled() answers no on every
+	 * store in the world. Three live runs on the demo store proved it: wp_mail
+	 * called zero times, the note always the fallback one. Meanwhile the very
+	 * path this stands in for — Order actions → "Send order details to
+	 * customer" — never asks that question either: WC_Emails::customer_invoice()
+	 * calls trigger() and trigger() calls send_if_recipient(), checked against
+	 * WooCommerce 11.0.1. So the check was not a safety net, it was the reason
+	 * nothing was sent; the buyer's only way back to a pending order stayed a
+	 * browser tab, exactly as before 1.3.3.
+	 *
+	 * What replaces it is the outcome rather than a prediction:
+	 * `woocommerce_email_sent` carries what wp_mail returned, and wp_mail_failed
+	 * carries why when it failed. A store with a broken mailer now gets a note
+	 * that says the buyer was NOT written to — which is the whole point of
+	 * having two notes.
 	 *
 	 * @param WC_Order $order Order.
-	 * @return bool Whether an e-mail was sent.
+	 * @return bool Whether an e-mail was really sent.
 	 */
 	private static function mail_payment_link( $order ) {
 		if ( '' !== (string) $order->get_meta( '_cherum_pay_link_mailed' ) ) {
@@ -389,14 +418,46 @@ class Cherum_Pay_Webhook {
 			return false;
 		}
 		$mailer = WC()->mailer();
-		$email  = ( $mailer && isset( $mailer->emails['WC_Email_Customer_Invoice'] ) )
-			? $mailer->emails['WC_Email_Customer_Invoice'] : null;
-		if ( ! $email || ! $email->is_enabled() ) {
+		if ( ! $mailer || ! method_exists( $mailer, 'customer_invoice' ) ) {
 			return false;
 		}
+		/* The attempt is written down BEFORE it is made. A delivery that dies
+		   half way (a mailer that fatals, a request that is killed) must not
+		   leave the retry free to send the buyer a second copy. */
 		$order->update_meta_data( '_cherum_pay_link_mailed', (string) time() );
 		$order->save();
-		$email->trigger( $order->get_id(), $order );
+
+		$sent  = null;
+		$why   = '';
+		$watch = static function ( $ok, $id ) use ( &$sent ) {
+			if ( 'customer_invoice' === $id ) {
+				$sent = (bool) $ok;
+			}
+		};
+		$blame = static function ( $error ) use ( &$why ) {
+			$why = ( is_object( $error ) && method_exists( $error, 'get_error_message' ) )
+				? (string) $error->get_error_message() : '';
+		};
+		add_action( 'woocommerce_email_sent', $watch, 10, 2 );
+		add_action( 'wp_mail_failed', $blame );
+		try {
+			$mailer->customer_invoice( $order );
+		} finally {
+			remove_action( 'woocommerce_email_sent', $watch, 10 );
+			remove_action( 'wp_mail_failed', $blame );
+		}
+
+		if ( true !== $sent ) {
+			/* Not sent, and the meta says so rather than reading like a receipt
+			   for a letter nobody got. */
+			$order->update_meta_data( '_cherum_pay_link_mailed', 'failed:' . time() );
+			$order->save();
+			Cherum_Pay_Gateway::log(
+				'order ' . $order->get_id() . ': invoice expired, the order-details e-mail was NOT sent'
+				. ( '' !== $why ? ' (' . $why . ')' : '' )
+			);
+			return false;
+		}
 		Cherum_Pay_Gateway::log( 'order ' . $order->get_id() . ': invoice expired, order details e-mailed to the buyer' );
 		return true;
 	}
@@ -420,6 +481,35 @@ class Cherum_Pay_Webhook {
 				foreach ( array( 'coin' => '_cherum_paid_coin', 'network' => '_cherum_paid_network', 'amountCrypto' => '_cherum_paid_amount', 'tokenDecimals' => '_cherum_paid_decimals', 'creditedUsd' => '_cherum_credited_usd' ) as $field => $meta ) {
 					if ( isset( $data[ $field ] ) && '' !== (string) $data[ $field ] ) {
 						$order->update_meta_data( $meta, sanitize_text_field( (string) $data[ $field ] ) );
+					}
+				}
+				/* WHICH INVOICE THE MONEY CAME IN ON (1.3.5).
+				 *
+				 * Since 1.3.3 an order answers to every invoice it has ever had,
+				 * so "the order is paid" and "the current invoice is paid" are
+				 * no longer the same sentence: with "Leave it pending" the buyer
+				 * can pay the FIRST invoice inside the 24-hour late window after
+				 * a second one has already been minted. Refunds are opened
+				 * against an invoice and are checked against ITS credit, so
+				 * without this the shop owner could not refund such an order at
+				 * all — the service would answer "not credited" about an invoice
+				 * nobody ever paid. `data.id` is that invoice, in both the
+				 * confirmed and the credited event and in the safety-net poll.
+				 *
+				 * The dollar/currency pair is re-stamped from the same event for
+				 * the same reason: it is stored at invoice creation, so it too
+				 * described the newer, unpaid invoice — and it is what a refund
+				 * from a non-dollar shop is converted with. */
+				$paid_id = isset( $data['id'] ) ? sanitize_text_field( (string) $data['id'] ) : '';
+				if ( '' !== $paid_id ) {
+					$order->update_meta_data( Cherum_Pay_Gateway::PAID_INVOICE_META, $paid_id );
+					Cherum_Pay_Gateway::remember_invoice( $order, $paid_id );
+					if ( isset( $data['amountUsd'] ) && is_numeric( $data['amountUsd'] ) && (float) $data['amountUsd'] > 0 ) {
+						$total = ( isset( $data['amountCurrency'] ) && is_numeric( $data['amountCurrency'] ) && (float) $data['amountCurrency'] > 0 )
+							? (string) $data['amountCurrency']
+							: (string) $order->get_total();
+						$order->update_meta_data( '_cherum_invoice_usd', (string) $data['amountUsd'] );
+						$order->update_meta_data( '_cherum_order_total', $total );
 					}
 				}
 				$order->save();

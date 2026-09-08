@@ -4,7 +4,7 @@ Tags: woocommerce, cryptocurrency, payment gateway, usdc, stablecoin
 Requires at least: 6.5
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.3.4
+Stable tag: 1.3.5
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -98,6 +98,13 @@ Yes, with the classic checkout and with the Cart and Checkout blocks. Nothing to
 5. Settings: one key, connected.
 
 == Changelog ==
+
+= 1.3.5 =
+* The classic checkout re-totals when you change the payment method. Since 1.3.3 the crypto discount appears there, and the totals on screen did not follow the choice: pick crypto last and you placed the order looking at the full price; pick crypto and then something else and you were looking at the discounted total while the order was written at the full price. The amount charged was always the right one — the number on the screen was not.
+* The discount can no longer round a cart down to zero. 1.3.3 said the 90% cap had closed that; the zero came from the rounding, not from the cap, so a cart left at a few cents by a coupon still reached 0.00 — and WooCommerce completes a zero order without calling any payment method, so the goods left the shop with no invoice and no payment. One unit of the currency always survives now, in currencies with minor units and without.
+* Refunds go against the invoice that was actually paid. An order that was paid on an invoice replaced since — a buyer coming back to a pending order and paying the first one inside the late window — could not be refunded from WooCommerce at all: the refund was opened against the newest invoice, which nobody had paid. Orders paid by earlier versions are recognised too.
+* "Leave it pending" really does e-mail the buyer now. 1.3.3 said it did and it did not: it asked whether WooCommerce's "Order details" e-mail was switched on, and that e-mail is a manual one with no such switch, so the answer was no on every store and nothing was ever sent. The plugin now sends it the way the "Send order details to customer" order action does, and reports what actually happened.
+* Money in order notes is written in the currency of the ORDER, not of the shop. On a store that has changed currency, or on any multi-currency store, the refund box offered "€52.92" and the note beside it called the same money "$52.92".
 
 = 1.3.4 =
 * Packaging only, for the WordPress.org directory review: the listing images (banner, icon, screenshots) and the bundled Russian translation are no longer inside the plugin; translations come from translate.wordpress.org. The payment method's logo at checkout is the plugin's own file.

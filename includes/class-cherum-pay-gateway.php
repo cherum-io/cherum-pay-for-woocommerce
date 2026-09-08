@@ -198,6 +198,74 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 	}
 
 	/**
+	 * An amount as plain text, in the currency of THIS ORDER.
+	 *
+	 * WHY NOT wc_price() ON ITS OWN (1.3.5). Called with one argument it prints
+	 * the symbol of the CURRENT SHOP currency, and every amount the plugin puts
+	 * in a note is in the currency of the ORDER. The two are the same only until
+	 * the shop switches currency or installs any multi-currency plugin — after
+	 * which the refund box on the order screen offers "€52.92" and the note the
+	 * plugin writes beside it calls the same money "$52.92". An order keeps the
+	 * currency it was placed in for ever, so that is the one to print.
+	 *
+	 * Plain text, and entities resolved: wp_strip_all_tags() takes the markup
+	 * off but leaves "&euro;52.36" behind, which reads correctly only in a
+	 * browser — order notes are also read through the REST API, in exports and
+	 * in e-mail.
+	 *
+	 * @param WC_Order $order  Order the money belongs to.
+	 * @param float    $amount Amount in that order's currency.
+	 * @return string
+	 */
+	public static function money( $order, $amount ) {
+		return html_entity_decode(
+			wp_strip_all_tags( wc_price( (float) $amount, array( 'currency' => $order->get_currency() ) ) ),
+			ENT_QUOTES,
+			'UTF-8'
+		);
+	}
+
+	/** Meta key holding the invoice the money actually arrived on. */
+	const PAID_INVOICE_META = '_cherum_paid_invoice';
+
+	/**
+	 * The invoice this order was PAID on — which is not always the current one.
+	 *
+	 * WHY THIS EXISTS (1.3.5). Making the order answer to all of its invoices
+	 * (1.3.3) opened a state that could not happen before: the order is paid on
+	 * an invoice that has since been replaced, so `_cherum_invoice_id` names a
+	 * newer invoice that nobody ever paid. A refund opened against that one is
+	 * refused by the service — a refund is checked against the credit for its
+	 * invoice, and an unpaid invoice has none — so the shop owner could not
+	 * refund a paid order from WooCommerce at all. Live on the demo store right
+	 * now: order 79 is complete, the money is on inv_0a36…, `_cherum_invoice_id`
+	 * is inv_4eef…, which is still `new`.
+	 *
+	 * Three sources, most trustworthy first:
+	 * 1. the invoice recorded when the payment was applied (1.3.5 and later);
+	 * 2. the transaction id, which is where payment_complete() has always put
+	 *    the same value — this is what rescues orders paid before 1.3.5;
+	 * 3. the current invoice, for an order that has only ever had one.
+	 * Sources 1 and 2 are believed only if the order really carries that
+	 * invoice: a transaction id left by another gateway must not be sent to
+	 * Cherum as an invoice number.
+	 *
+	 * @param WC_Order $order Order.
+	 * @return string Invoice id, or '' when the order has none.
+	 */
+	public static function paid_invoice_id( $order ) {
+		$history = self::invoice_history( $order );
+		$current = (string) $order->get_meta( '_cherum_invoice_id' );
+		$txn = method_exists( $order, 'get_transaction_id' ) ? (string) $order->get_transaction_id() : '';
+		foreach ( array( (string) $order->get_meta( self::PAID_INVOICE_META ), $txn ) as $candidate ) {
+			if ( '' !== $candidate && ( $candidate === $current || in_array( $candidate, $history, true ) ) ) {
+				return $candidate;
+			}
+		}
+		return $current;
+	}
+
+	/**
 	 * One gateway setting, readable from static contexts (webhook, cron).
 	 *
 	 * @param string $name    Option name.
@@ -325,8 +393,10 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 				   Cherum_Pay_Webhook::mail_payment_link(). Until 1.3.3 it was
 				   not: WooCommerce sends a customer nothing for an order that
 				   stays pending, and the buyer's only way back was a browser
-				   tab they had probably closed. */
-				'description' => __( 'Cancelling frees the stock. Leaving the order pending keeps the order alive and e-mails the buyer its details, with a link to pay it, when the invoice expires — as long as WooCommerce\'s "Customer invoice / Order details" e-mail is switched on.', 'cherum-pay-for-woocommerce' ),
+				   tab they had probably closed. 1.3.3 said it had fixed that
+				   and had not — the condition it added could never be true —
+				   which is why the sentence below no longer names one. */
+				'description' => __( 'Cancelling frees the stock. Leaving the order pending keeps the order alive and e-mails the buyer its details, with a link to pay it, when the invoice expires. If your store cannot send that e-mail, the order note says so instead.', 'cherum-pay-for-woocommerce' ),
 				'options'     => array(
 					'cancel' => __( 'Cancel the order', 'cherum-pay-for-woocommerce' ),
 					'keep'   => __( 'Leave it pending', 'cherum-pay-for-woocommerce' ),
@@ -478,6 +548,21 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 			return;
 		}
 		$off = round( $base * $pct / 100, wc_get_price_decimals() );
+		/* ONE UNIT OF THE CURRENCY ALWAYS SURVIVES (1.3.5). 1.3.3 moved the
+		   base behind the coupons and said the cap of 90% could no longer zero
+		   a cart. It still could, and a live purchase proved it: the zero comes
+		   from the ROUNDING, not from the base. round( 0.05 * 90 / 100, 2 ) is
+		   round( 0.045, 2 ) = 0.05 — the whole remainder — so a cart left at
+		   five cents after a coupon reached 0.00, and WooCommerce completes a
+		   zero order without calling any payment method at all: goods out of
+		   the door, no invoice, no payment (demo order 77, 07.09). The same
+		   arithmetic bites at 50% on a one-cent remainder, and in a currency
+		   with no minor unit (JPY, KRW) it takes any remainder up to five whole
+		   yen. Capping the discount one minor unit below the base leaves
+		   something to charge, whatever the rate and whatever the currency;
+		   when even that is nothing to give away, no fee is added at all. */
+		$unit = pow( 10, -wc_get_price_decimals() );
+		$off  = min( $off, round( max( 0, $base - $unit ), wc_get_price_decimals() ) );
 		if ( $off <= 0 ) {
 			return;
 		}
@@ -492,6 +577,62 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 	 */
 	public function maybe_add_discount() {
 		self::add_crypto_discount();
+	}
+
+	/**
+	 * Make the classic checkout re-total itself when the payment method changes.
+	 *
+	 * WHY A SCRIPT AT ALL (1.3.5). 1.3.3 finally put the crypto discount on the
+	 * classic checkout — and the classic checkout does not re-total when the
+	 * buyer picks a different way to pay. WooCommerce binds one handler to
+	 * input[name="payment_method"] (assets/js/frontend/checkout.js), and it
+	 * slides the payment boxes and renames the button; the totals are refreshed
+	 * for the address, the shipping choice and fields marked
+	 * .update_totals_on_change, never for the choice of method. Until 1.3.3
+	 * that was harmless, because no total of ours depended on the method. Now
+	 * one does, and the screen lied in both directions (demo orders 74 and 78):
+	 * choose crypto last and the buyer places the order looking at the full
+	 * price while the order is written with the discount; choose crypto and
+	 * then something else, and the buyer is looking at the discounted total
+	 * while the order is written — correctly — at the full price, so they are
+	 * charged more than the page said. The money was always right;
+	 * process_checkout() totals the cart again from the posted method. What was
+	 * wrong is the number the buyer agreed to.
+	 *
+	 * One trigger of WooCommerce's own `update_checkout` fixes it: that is the
+	 * event the address fields fire, it posts the currently checked method to
+	 * ?wc-ajax=update_order_review, which writes it into the session, and the
+	 * totals come back rendered from the same fee callback the order is written
+	 * from.
+	 *
+	 * HOOKED ON THE CLASSIC PAYMENT TEMPLATE, not on wp_enqueue_scripts:
+	 * is_checkout() is true on a block checkout as well (WooCommerce enqueues
+	 * wc-checkout there too), while woocommerce_review_order_before_payment
+	 * fires only from templates/checkout/payment.php — the classic list of
+	 * payment methods and nothing else. Loaded only for a shop that actually
+	 * has a discount to show, so nobody else pays an extra request per click.
+	 */
+	public static function enqueue_classic_checkout() {
+		if ( ! function_exists( 'wp_enqueue_script' ) ) {
+			return;
+		}
+		if ( 'yes' !== self::setting( 'enabled', 'no' ) || '' === self::setting( 'api_key' ) ) {
+			return;
+		}
+		if ( ! in_array( get_woocommerce_currency(), self::CURRENCIES, true ) ) {
+			return;
+		}
+		$pct = (float) self::setting( 'discount_pct', '0' );
+		if ( $pct <= 0 || $pct > 90 ) {
+			return;
+		}
+		wp_enqueue_script(
+			'cherum-pay-checkout',
+			CHERUM_PAY_URL . 'assets/js/classic-checkout.js',
+			array( 'jquery', 'wc-checkout' ),
+			CHERUM_PAY_VERSION,
+			true
+		);
 	}
 
 	/**
@@ -1141,6 +1282,10 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 	 * the reason gone. Now each one is on the order, where the next person to
 	 * look can read it.
 	 *
+	 * AND IT GOES AGAINST THE INVOICE THAT WAS PAID (1.3.5) — see
+	 * paid_invoice_id(). Refunding against the current one was right only while
+	 * an order could have but one invoice.
+	 *
 	 * @param int    $order_id Order being refunded.
 	 * @param float  $amount   Amount in the shop currency; null means full.
 	 * @param string $reason   Reason typed by the shop owner.
@@ -1151,12 +1296,21 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 		if ( ! $order ) {
 			return new WP_Error( 'cherum_no_order', __( 'Order not found.', 'cherum-pay-for-woocommerce' ) );
 		}
-		$invoice_id = $order->get_meta( '_cherum_invoice_id' );
+		$invoice_id = self::paid_invoice_id( $order );
 		if ( ! $invoice_id ) {
 			return self::refund_refused(
 				$order,
 				'cherum_no_invoice',
 				__( 'This order was not paid through Cherum Pay, so there is nothing to refund here.', 'cherum-pay-for-woocommerce' )
+			);
+		}
+		if ( $invoice_id !== (string) $order->get_meta( '_cherum_invoice_id' ) ) {
+			/* Worth a line: the order has more than one invoice and the money is
+			   not on the newest. Anyone reading the log after a refund should
+			   see which one it went against without guessing. */
+			self::log(
+				'order ' . $order_id . ': refunding against the PAID invoice ' . $invoice_id
+				. ', not the current one ' . (string) $order->get_meta( '_cherum_invoice_id' )
 			);
 		}
 		$key = $this->get_option( 'api_key' );
@@ -1276,7 +1430,7 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 			sprintf(
 				/* translators: 1: amount, 2: refund id */
 				__( 'Cherum Pay: refund of %1$s requested (%2$s). The payer is asked for a wallet on the payment page; the money leaves once they give one.', 'cherum-pay-for-woocommerce' ),
-				wc_price( $amount ),
+				self::money( $order, $amount ),
 				$rid ? $rid : __( 'no id returned', 'cherum-pay-for-woocommerce' )
 			)
 		);
@@ -1332,7 +1486,7 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 				: sprintf(
 					/* translators: 1: amount asked for, 2: reason the refund was refused. */
 					__( 'Cherum Pay: a refund of %1$s was not accepted — %2$s', 'cherum-pay-for-woocommerce' ),
-					wp_strip_all_tags( wc_price( $amount ) ),
+					self::money( $order, $amount ),
 					$message
 				)
 		);
