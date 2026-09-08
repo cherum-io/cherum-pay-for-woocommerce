@@ -3,7 +3,7 @@
  * Plugin Name:       Cherum Pay for WooCommerce
  * Plugin URI:        https://cherum.io/woocommerce
  * Description:       Accept stablecoin payments in your WooCommerce store through Cherum Pay. The buyer picks the coin and the network; you get paid in the asset you chose.
- * Version:           1.3.6
+ * Version:           1.3.7
  * Requires at least: 6.5
  * Requires PHP:      7.4
  * Requires Plugins:  woocommerce
@@ -23,7 +23,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'CHERUM_PAY_VERSION', '1.3.6' );
+define( 'CHERUM_PAY_VERSION', '1.3.7' );
 define( 'CHERUM_PAY_FILE', __FILE__ );
 define( 'CHERUM_PAY_PATH', plugin_dir_path( __FILE__ ) );
 define( 'CHERUM_PAY_URL', plugin_dir_url( __FILE__ ) );
@@ -117,6 +117,17 @@ add_action(
 		 * API on every change and reports the choice itself (see the update
 		 * callback at the bottom of this file). */
 		add_action( 'woocommerce_review_order_before_payment', array( 'Cherum_Pay_Gateway', 'enqueue_classic_checkout' ) );
+
+		/* A METHOD THAT HIDES ITSELF HAS TO SAY WHY (1.3.7).
+		 *
+		 * Cherum will not invoice an order below its minimum, so below that the
+		 * method takes itself off the checkout instead of failing on "Place
+		 * order". On a shop where it is the only method, WooCommerce then tells
+		 * the buyer there are no payment methods "for your location" — untrue,
+		 * and nothing they can act on. The real reason is the basket, which is
+		 * the one thing they can change. Hooked here, statically, for the same
+		 * reason as the fee above: no gateway object need exist. */
+		add_filter( 'woocommerce_no_available_payment_methods_message', array( 'Cherum_Pay_Gateway', 'no_methods_message' ) );
 
 		/* Translations are not bundled. Since WordPress 4.6 the core loads a
 		   plugin's translations just in time from translate.wordpress.org, so

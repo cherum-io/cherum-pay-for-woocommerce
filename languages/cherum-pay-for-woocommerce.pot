@@ -2,14 +2,14 @@
 # This file is distributed under the GPLv2 or later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Cherum Pay for WooCommerce 1.3.6\n"
+"Project-Id-Version: Cherum Pay for WooCommerce 1.3.7\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/cherum-pay-for-woocommerce\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-09-08T04:37:40+00:00\n"
+"POT-Creation-Date: 2026-09-08T07:34:05+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: cherum-pay-for-woocommerce\n"
@@ -43,23 +43,23 @@ msgstr ""
 msgid "Cherum Pay needs WooCommerce to be installed and active."
 msgstr ""
 
-#: cherum-pay-for-woocommerce.php:150
+#: cherum-pay-for-woocommerce.php:161
 msgid "Every 15 minutes (Cherum Pay safety-net poll)"
 msgstr ""
 
-#: cherum-pay-for-woocommerce.php:173
+#: cherum-pay-for-woocommerce.php:184
 msgid "When a customer chooses to pay with Cherum Pay, the order total, the store currency, the order number and a short line naming the items are sent to Cherum (https://cherum.io) to create a payment invoice. No customer name or postal address is sent."
 msgstr ""
 
-#: cherum-pay-for-woocommerce.php:176
+#: cherum-pay-for-woocommerce.php:187
 msgid "Because the \"Receipt from Cherum\" setting is on, the customer's e-mail address is sent as well, and is used only to send them a receipt for the payment."
 msgstr ""
 
-#: cherum-pay-for-woocommerce.php:177
+#: cherum-pay-for-woocommerce.php:188
 msgid "The customer's e-mail address is not sent, unless you turn on the \"Receipt from Cherum\" setting in the payment method options."
 msgstr ""
 
-#: cherum-pay-for-woocommerce.php:179
+#: cherum-pay-for-woocommerce.php:190
 msgid "Cherum's privacy policy: https://cherum.io/legal/privacy"
 msgstr ""
 
@@ -76,442 +76,460 @@ msgid "Cherum Pay returned status %d."
 msgstr ""
 
 #: includes/class-cherum-pay-blocks.php:107
-#: includes/class-cherum-pay-gateway.php:49
-#: includes/class-cherum-pay-gateway.php:311
+#: includes/class-cherum-pay-gateway.php:72
+#: includes/class-cherum-pay-gateway.php:334
 #: assets/js/blocks.js:42
 msgid "Pay with crypto"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:37
+#: includes/class-cherum-pay-gateway.php:60
 msgid "Cherum Pay"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:38
+#: includes/class-cherum-pay-gateway.php:61
 msgid "Accept stablecoin payments. The buyer picks the coin and the network on the payment page; you are paid in the asset you chose."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:303
+#: includes/class-cherum-pay-gateway.php:326
 msgid "Enable"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:305
+#: includes/class-cherum-pay-gateway.php:328
 msgid "Offer Cherum Pay at checkout"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:309
+#: includes/class-cherum-pay-gateway.php:332
 msgid "Name at checkout"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:313
+#: includes/class-cherum-pay-gateway.php:336
 msgid "What the buyer sees in the list of payment methods."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:316
+#: includes/class-cherum-pay-gateway.php:339
 msgid "Description at checkout"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:318
+#: includes/class-cherum-pay-gateway.php:341
 msgid "Bitcoin, Ethereum, USDC, USDT, Solana, TON and more — on the network you already use. No account, no card, no app to install."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:321
+#: includes/class-cherum-pay-gateway.php:344
 msgid "API key"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:323
+#: includes/class-cherum-pay-gateway.php:346
 msgid "Create one in your Cherum dashboard under Developers and paste it here. Tick invoices, webhooks and refunds when you create it. A key that starts with chm_test_ is a rehearsal: orders look real, no money moves. Save, and the plugin connects the store on its own."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:326
+#: includes/class-cherum-pay-gateway.php:349
 msgid "Connection"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:331
+#: includes/class-cherum-pay-gateway.php:354
 msgid "Notification secret"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:333
+#: includes/class-cherum-pay-gateway.php:356
 msgid "Filled in for you when you save the key. Paste one yourself only if you registered this store in the dashboard by hand."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:336
+#: includes/class-cherum-pay-gateway.php:359
 msgid "Invoice lifetime, minutes"
 msgstr ""
 
 #. translators: %d is the store's own stock-hold window in minutes.
-#: includes/class-cherum-pay-gateway.php:346
+#: includes/class-cherum-pay-gateway.php:369
 #, php-format
 msgid "How long the buyer has to pay before the invoice expires. Between 5 and 1440. Note: WooCommerce holds stock for an unpaid order for %d minutes — set a longer window here and the goods can be sold to someone else while your invoice is still open."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:351
+#: includes/class-cherum-pay-gateway.php:374
 msgid "Discount for paying in crypto, %"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:360
+#: includes/class-cherum-pay-gateway.php:383
 msgid "Take this much off the cart when the buyer chooses Cherum Pay. Card processing costs you 2–3%; crypto costs 0.90%, and this is where you can hand part of that back. 0 turns it off."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:363
+#: includes/class-cherum-pay-gateway.php:386
 msgid "Discount wording"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:365
-#: includes/class-cherum-pay-gateway.php:570
+#: includes/class-cherum-pay-gateway.php:388
+#: includes/class-cherum-pay-gateway.php:770
 msgid "Crypto payment discount"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:367
+#: includes/class-cherum-pay-gateway.php:390
 msgid "The line the buyer sees in the cart totals. Say what it is, not that it is a promotion."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:370
+#: includes/class-cherum-pay-gateway.php:393
 msgid "Order status once paid"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:374
+#: includes/class-cherum-pay-gateway.php:397
 msgid "What the order becomes when the payment confirms. Leave the default unless your fulfilment depends on a particular status."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:376
+#: includes/class-cherum-pay-gateway.php:399
 msgid "WooCommerce decides (processing, or completed for downloads)"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:377
+#: includes/class-cherum-pay-gateway.php:400
 msgid "Processing"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:378
+#: includes/class-cherum-pay-gateway.php:401
 msgid "Completed"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:382
+#: includes/class-cherum-pay-gateway.php:405
 msgid "Coin icons at checkout"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:384
+#: includes/class-cherum-pay-gateway.php:407
 msgid "Show a row of coin logos next to the method name"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:388
+#: includes/class-cherum-pay-gateway.php:411
 msgid "When the invoice expires unpaid"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:399
+#: includes/class-cherum-pay-gateway.php:422
 msgid "Cancelling frees the stock. Leaving the order pending keeps the order alive and e-mails the buyer its details, with a link to pay it, when the invoice expires. If your store cannot send that e-mail, the order note says so instead."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:401
+#: includes/class-cherum-pay-gateway.php:424
 msgid "Cancel the order"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:402
+#: includes/class-cherum-pay-gateway.php:425
 msgid "Leave it pending"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:406
+#: includes/class-cherum-pay-gateway.php:429
 msgid "Receipt from Cherum"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:408
+#: includes/class-cherum-pay-gateway.php:431
 msgid "Send the buyer's e-mail address to Cherum so they get a payment receipt"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:410
+#: includes/class-cherum-pay-gateway.php:433
 msgid "Off by default: with it off, no personal data leaves your store. Cherum has to have buyer receipts switched on for the letter to be sent — the plugin checks when you save and tells you if it does not."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:413
+#: includes/class-cherum-pay-gateway.php:436
 msgid "Write a log"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:415
+#: includes/class-cherum-pay-gateway.php:438
 msgid "Record requests and notifications in WooCommerce → Status → Logs"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:421
+#: includes/class-cherum-pay-gateway.php:444
 msgid "Off by default. Keys and signatures are never written — only what happened and when."
-msgstr ""
-
-#. translators: 1: the number typed, 2: the number stored.
-#: includes/class-cherum-pay-gateway.php:462
-#, php-format
-msgid "Cherum Pay: a crypto discount of %1$s%% cannot be offered; %2$s%% was saved instead. The discount has to stay between 0 and 90."
 msgstr ""
 
 #. translators: 1: the number typed, 2: the number stored.
 #: includes/class-cherum-pay-gateway.php:485
 #, php-format
+msgid "Cherum Pay: a crypto discount of %1$s%% cannot be offered; %2$s%% was saved instead. The discount has to stay between 0 and 90."
+msgstr ""
+
+#. translators: 1: the number typed, 2: the number stored.
+#: includes/class-cherum-pay-gateway.php:508
+#, php-format
 msgid "Cherum Pay: an invoice lifetime of %1$d minutes is outside what Cherum accepts; %2$d minutes was saved instead. It has to stay between 5 and 1440."
 msgstr ""
 
+#. translators: %s: the smallest payable amount, in the shop's currency.
+#: includes/class-cherum-pay-gateway.php:673
+#, php-format
+msgid "This order is too small to pay in crypto: the smallest payment Cherum can take is %s, because moving less than that costs more in network fees than the payment itself. Add a little more to the basket."
+msgstr ""
+
 #. translators: %s: the shop's currency code.
-#: includes/class-cherum-pay-gateway.php:664
+#: includes/class-cherum-pay-gateway.php:875
 #, php-format
 msgid "Your shop is in %s, which Cherum Pay cannot price an invoice in yet. The method stays hidden at checkout until the shop currency is one it supports."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:678
+#: includes/class-cherum-pay-gateway.php:889
 msgid "Rehearsal mode: this is a test key. Orders look real, the payment page shows a practice address, and no money moves. Swap in a live key when you are ready."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:680
+#: includes/class-cherum-pay-gateway.php:891
 msgid "Refunds are the one thing rehearsal does not cover: they move real money, so Cherum accepts them only from a live key."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:688
+#: includes/class-cherum-pay-gateway.php:899
 msgid "Cherum is not sending buyer receipts at the moment, so \"Receipt from Cherum\" hands over the buyer's e-mail address for a letter that will not be sent. Turn it off until Cherum enables receipts."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:698
+#: includes/class-cherum-pay-gateway.php:909
 msgid "The payment page shows the business name and logo from your Cherum account, under Settings → Checkout branding. Set them once, or your buyers see \"Cherum Pay\" where your shop name belongs."
 msgstr ""
 
 #. translators: %s: the stored discount percentage.
-#: includes/class-cherum-pay-gateway.php:710
+#: includes/class-cherum-pay-gateway.php:921
 #, php-format
 msgid "The crypto discount is set to %s%%, which is outside 0–90, so no discount is being applied at checkout. Save this screen to correct it."
 msgstr ""
 
 #. translators: 1: the stored lifetime, 2: the lifetime in force.
-#: includes/class-cherum-pay-gateway.php:722
+#: includes/class-cherum-pay-gateway.php:933
 #, php-format
 msgid "The invoice lifetime is set to %1$d minutes, which Cherum does not accept; invoices are being created with %2$d. Save this screen to correct it."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:732
+#. translators: %s: the smallest payable order, in the shop's currency.
+#: includes/class-cherum-pay-gateway.php:951
+#, php-format
+msgid "Cherum cannot invoice less than %s. An order below that does not show this payment method at checkout (the buyer is told why), and the crypto discount never takes a cart under it."
+msgstr ""
+
+#. translators: %s: the smallest payable invoice, in US dollars.
+#: includes/class-cherum-pay-gateway.php:956
+#, php-format
+msgid "Cherum cannot invoice less than %s worth of goods — below that the network fee to move the money is larger than the money. Your shop is not in dollars, so the exact figure in your currency is known from your first Cherum order onwards; from then on an order below it does not show this payment method at checkout."
+msgstr ""
+
+#: includes/class-cherum-pay-gateway.php:964
 msgid "Notifications are not connected yet, so orders update through the fallback check every 15 minutes instead of within seconds."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:785
+#: includes/class-cherum-pay-gateway.php:1017
 msgid "Cherum Pay: \"Receipt from Cherum\" is on, but Cherum is not sending buyer receipts at the moment. The buyer's e-mail address would leave your store for a letter that will not be sent — turn the setting off until Cherum enables receipts."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:807
+#: includes/class-cherum-pay-gateway.php:1039
 msgid "Notifications need a public https address, which this site does not have yet. Orders will update through the 15-minute check until it does."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:814
+#: includes/class-cherum-pay-gateway.php:1046
 msgid "Cherum does not recognise this key. Check it for a missing character and save again."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:816
+#: includes/class-cherum-pay-gateway.php:1048
 msgid "This key can create invoices but is not allowed to manage notifications. Create a key with the webhooks permission, or register the store in the dashboard by hand and paste the secret below."
 msgstr ""
 
 #. translators: %s: the message from the service or the network.
-#: includes/class-cherum-pay-gateway.php:822
+#: includes/class-cherum-pay-gateway.php:1054
 #, php-format
 msgid "Could not reach Cherum to connect the store: %s. Save again in a minute."
 msgstr ""
 
 #. translators: %s: the message from the service.
-#: includes/class-cherum-pay-gateway.php:852
+#: includes/class-cherum-pay-gateway.php:1084
 #, php-format
 msgid "The store is registered but a new secret could not be issued: %s"
 msgstr ""
 
 #. translators: %s: the message from the service.
-#: includes/class-cherum-pay-gateway.php:867
+#: includes/class-cherum-pay-gateway.php:1099
 #, php-format
 msgid "Cherum refused to register this store: %s"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:920
+#: includes/class-cherum-pay-gateway.php:1152
 msgid "Not connected. Paste an API key and save."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:923
+#: includes/class-cherum-pay-gateway.php:1155
 msgid "test key"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:924
+#: includes/class-cherum-pay-gateway.php:1156
 msgid "live key"
 msgstr ""
 
 #. translators: 1: "test key" or "live key", 2: what went wrong.
-#: includes/class-cherum-pay-gateway.php:929
+#: includes/class-cherum-pay-gateway.php:1161
 #, php-format
 msgid "Key saved (%1$s). Notifications: %2$s"
 msgstr ""
 
 #. translators: 1: "test key" or "live key", 2: endpoint id.
-#: includes/class-cherum-pay-gateway.php:937
+#: includes/class-cherum-pay-gateway.php:1169
 #, php-format
 msgid "Connected (%1$s). Cherum sends notifications to this store, endpoint #%2$s."
 msgstr ""
 
 #. translators: %s: "test key" or "live key".
-#: includes/class-cherum-pay-gateway.php:944
+#: includes/class-cherum-pay-gateway.php:1176
 #, php-format
 msgid "Key saved (%s). Notifications are not connected yet: save once more to connect."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:1067
+#: includes/class-cherum-pay-gateway.php:1299
 msgid "The payment service did not answer just now. Nothing has been charged — please try again in a moment."
 msgstr ""
 
 #. translators: %s: message from the payment service.
-#: includes/class-cherum-pay-gateway.php:1070
+#: includes/class-cherum-pay-gateway.php:1302
 #, php-format
 msgid "Could not start the payment: %s"
 msgstr ""
 
 #. translators: %s: message from the payment service.
-#: includes/class-cherum-pay-gateway.php:1077
+#: includes/class-cherum-pay-gateway.php:1309
 #, php-format
 msgid "Cherum Pay: creating the invoice failed — %s"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:1089
+#: includes/class-cherum-pay-gateway.php:1321
 msgid "The payment service answered without a payment link. Nothing was charged — please try again."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:1118
+#: includes/class-cherum-pay-gateway.php:1354
 msgid "Cherum Pay: invoice created, waiting for payment."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:1208
+#: includes/class-cherum-pay-gateway.php:1444
 msgid "Your crypto payment is confirmed."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:1209
+#: includes/class-cherum-pay-gateway.php:1445
 msgid "Open the payment receipt"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:1211
+#: includes/class-cherum-pay-gateway.php:1447
 msgid "Your crypto payment has not arrived yet. This page and your order update by themselves once the network confirms it — usually within minutes."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:1212
+#: includes/class-cherum-pay-gateway.php:1448
 #: includes/class-cherum-pay-order-box.php:129
 msgid "Open the payment page"
 msgstr ""
 
 #. translators: %d: order number.
-#: includes/class-cherum-pay-gateway.php:1238
+#: includes/class-cherum-pay-gateway.php:1474
 #, php-format
 msgid "Order #%d"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:1297
+#: includes/class-cherum-pay-gateway.php:1533
 msgid "Order not found."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:1304
+#: includes/class-cherum-pay-gateway.php:1540
 msgid "This order was not paid through Cherum Pay, so there is nothing to refund here."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:1321
+#: includes/class-cherum-pay-gateway.php:1557
 msgid "Add your Cherum API key in the payment settings before refunding."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:1334
+#: includes/class-cherum-pay-gateway.php:1570
 msgid "This store is connected with a rehearsal key (chm_test_), and rehearsal does not cover refunds — they move real money. Connect a live key (chm_live_) to refund through Cherum, or refund this order by another route."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:1339
+#: includes/class-cherum-pay-gateway.php:1575
 msgid "Enter an amount above zero."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:1356
+#: includes/class-cherum-pay-gateway.php:1592
 msgid "This order predates exchange-rate tracking, so the refund amount cannot be converted to dollars safely. Refund it from the Cherum dashboard instead."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:1382
+#: includes/class-cherum-pay-gateway.php:1618
 msgid "Cherum could not price this refund."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:1395
+#: includes/class-cherum-pay-gateway.php:1631
 msgid "Cherum did not accept the refund."
 msgstr ""
 
 #. translators: %s: the refund id already recorded on this order.
-#: includes/class-cherum-pay-gateway.php:1420
+#: includes/class-cherum-pay-gateway.php:1656
 #, php-format
 msgid "Cherum answered with refund %s, which is already recorded on this order — nothing new was refunded. If you meant a second refund, wait until the first one is paid out, or give this one a different reason so the two can be told apart."
 msgstr ""
 
 #. translators: 1: amount, 2: refund id
-#: includes/class-cherum-pay-gateway.php:1445
+#: includes/class-cherum-pay-gateway.php:1681
 #, php-format
 msgid "Cherum Pay: refund of %1$s requested (%2$s). The payer is asked for a wallet on the payment page; the money leaves once they give one."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:1447
+#: includes/class-cherum-pay-gateway.php:1683
 msgid "no id returned"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:1567
+#: includes/class-cherum-pay-gateway.php:1803
 msgid "There is no Cherum refund open on this order."
 msgstr ""
 
 #. translators: %s: the refund id recorded on the order.
-#: includes/class-cherum-pay-gateway.php:1578
+#: includes/class-cherum-pay-gateway.php:1814
 #, php-format
 msgid "The refund recorded on this order (%s) is not a Cherum refund number, so it cannot be cancelled from here. Look under Accept → Refunds in the Cherum dashboard."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:1586
+#: includes/class-cherum-pay-gateway.php:1822
 msgid "Add your Cherum API key in the payment settings before cancelling a refund."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:1591
+#: includes/class-cherum-pay-gateway.php:1827
 msgid "This store is connected with a rehearsal key (chm_test_), which cannot touch refunds. Connect a live key (chm_live_) or cancel the refund in the Cherum dashboard."
 msgstr ""
 
 #. translators: %s: refund id.
-#: includes/class-cherum-pay-gateway.php:1609
+#: includes/class-cherum-pay-gateway.php:1845
 #, php-format
 msgid "Cherum Pay: refund %s was cancelled from this store. No money left — the reserve went back to your Cherum balance. WooCommerce still shows a refund line for it: delete it (Order → Refunds → ×) to make the books match."
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:1623
+#: includes/class-cherum-pay-gateway.php:1859
 msgid "Cherum did not answer the cancellation."
 msgstr ""
 
 #. translators: 1: refund id, 2: reason from the service.
-#: includes/class-cherum-pay-gateway.php:1630
+#: includes/class-cherum-pay-gateway.php:1866
 #, php-format
 msgid "Cherum Pay: refund %1$s was NOT cancelled — %2$s"
 msgstr ""
 
-#: includes/class-cherum-pay-gateway.php:1679
+#: includes/class-cherum-pay-gateway.php:1915
 msgid "This store cannot tell which refund is open — ask Cherum under Accept → Refunds, cancel it there, and refund again."
 msgstr ""
 
 #. translators: %s: refund id.
-#: includes/class-cherum-pay-gateway.php:1684
+#: includes/class-cherum-pay-gateway.php:1920
 #, php-format
 msgid "Refund %s is already on its way to the buyer and cannot be called off; wait for it to finish, then refund again."
 msgstr ""
 
 #. translators: %s: refund id.
-#: includes/class-cherum-pay-gateway.php:1690
+#: includes/class-cherum-pay-gateway.php:1926
 #, php-format
 msgid "The open one is %s: to call it off, choose Order actions → \"Cancel Cherum refund\" and press Update, then refund again."
 msgstr ""
 
 #. translators: %s: the status name the order held before the refund.
-#: includes/class-cherum-pay-gateway.php:1791
+#: includes/class-cherum-pay-gateway.php:2027
 #, php-format
 msgid "Cherum Pay: the refund line was deleted. The order was NOT put back to \"%s\" because its status has been changed since — the status you see now is the one you set."
 msgstr ""
 
 #. translators: %s: the status name the order held before the refund.
-#: includes/class-cherum-pay-gateway.php:1804
+#: includes/class-cherum-pay-gateway.php:2040
 #, php-format
 msgid "Cherum Pay: the refund line was deleted, so the order goes back to \"%s\" — the status it held before the refund failed."
 msgstr ""
 
 #. translators: %s: reason the refund was refused.
-#: includes/class-cherum-pay-gateway.php:1858
+#: includes/class-cherum-pay-gateway.php:2094
 #, php-format
 msgid "Cherum Pay: the refund was not accepted — %s"
 msgstr ""
 
 #. translators: 1: amount asked for, 2: reason the refund was refused.
-#: includes/class-cherum-pay-gateway.php:1863
+#: includes/class-cherum-pay-gateway.php:2099
 #, php-format
 msgid "Cherum Pay: a refund of %1$s was not accepted — %2$s"
 msgstr ""
@@ -602,70 +620,74 @@ msgstr ""
 msgid "Cherum Pay: more than the invoice was received. The surplus does NOT go back on its own — the buyer is offered it on the payment page and has to give a wallet address for it, and a surplus below Cherum's minimum refund amount is not returned at all. Nothing is owed by you; if the buyer asks, the surplus is under Accept → Refunds in the Cherum dashboard."
 msgstr ""
 
-#: includes/class-cherum-pay-webhook.php:623
+#: includes/class-cherum-pay-webhook.php:625
+msgid "Cherum Pay: an invoice on this order expired unpaid, but the order has already been paid — on an earlier invoice. Nothing was changed and nothing was sent to the buyer."
+msgstr ""
+
+#: includes/class-cherum-pay-webhook.php:642
 msgid "Cherum Pay: the invoice expired without payment. The order stays pending, as set in the gateway settings, and the buyer has been e-mailed the order details with a link to pay it."
 msgstr ""
 
-#: includes/class-cherum-pay-webhook.php:624
+#: includes/class-cherum-pay-webhook.php:643
 msgid "Cherum Pay: the invoice expired without payment. The order stays pending, as set in the gateway settings. The buyer was NOT e-mailed a payment link — send one with Order actions → \"Send order details to customer\", or they have no way back to this order."
 msgstr ""
 
-#: includes/class-cherum-pay-webhook.php:631
+#: includes/class-cherum-pay-webhook.php:649
 msgid "Cherum Pay: the invoice expired without payment."
 msgstr ""
 
-#: includes/class-cherum-pay-webhook.php:650
+#: includes/class-cherum-pay-webhook.php:667
 msgid "Cherum Pay: payment detected, waiting for network confirmation."
 msgstr ""
 
-#: includes/class-cherum-pay-webhook.php:662
+#: includes/class-cherum-pay-webhook.php:679
 msgid "Cherum Pay: the invoice was cancelled on the Cherum side."
 msgstr ""
 
-#: includes/class-cherum-pay-webhook.php:666
+#: includes/class-cherum-pay-webhook.php:683
 msgid "Cherum Pay: a cancel event arrived for an already-paid order — the payment stands, nothing was changed."
 msgstr ""
 
-#: includes/class-cherum-pay-webhook.php:673
+#: includes/class-cherum-pay-webhook.php:690
 msgid "Cherum Pay: the rate window expired and the invoice was re-quoted. The buyer sees the new amount on the payment page; the order total is unchanged."
 msgstr ""
 
 #. translators: 1: amount, 2: coin and network, 3: the date by which the shop owner has to decide.
-#: includes/class-cherum-pay-webhook.php:693
+#: includes/class-cherum-pay-webhook.php:710
 #, php-format
 msgid "Cherum Pay: A PAYMENT ARRIVED AFTER THE INVOICE CLOSED (%1$s, %2$s). The money is safe but NOT credited. Decide in the Cherum dashboard under Accept → Refunds by %3$s: credit it to this order or send it back."
 msgstr ""
 
-#: includes/class-cherum-pay-webhook.php:696
+#: includes/class-cherum-pay-webhook.php:713
 msgid "the date shown in the dashboard"
 msgstr ""
 
 #. translators: %s: refund id.
-#: includes/class-cherum-pay-webhook.php:712
+#: includes/class-cherum-pay-webhook.php:729
 #, php-format
 msgid "Cherum Pay: refund %s is open. The payer is asked for a wallet on the payment page. To call it off: Order actions → \"Cancel Cherum refund\" → Update."
 msgstr ""
 
 #. translators: 1: refund id, 2: transaction hash.
-#: includes/class-cherum-pay-webhook.php:723
+#: includes/class-cherum-pay-webhook.php:740
 #, php-format
 msgid "Cherum Pay: refund %1$s is PAID OUT (tx %2$s). The books on this order now match reality."
 msgstr ""
 
 #. translators: 1: refund id, 2: status name the order goes back to.
-#: includes/class-cherum-pay-webhook.php:760
+#: includes/class-cherum-pay-webhook.php:777
 #, php-format
 msgid "Cherum Pay: the refund you cancelled (%1$s) is closed and the money stayed on your Cherum balance. WooCommerce still shows a refund line for it — delete it (Order → Refunds → ×) and this order goes back to \"%2$s\"."
 msgstr ""
 
 #. translators: 1: event type, 2: refund id, 3: status name the order goes back to.
-#: includes/class-cherum-pay-webhook.php:766
+#: includes/class-cherum-pay-webhook.php:783
 #, php-format
 msgid "Cherum Pay: REFUND DID NOT GO THROUGH (%1$s, %2$s). The money stayed on your Cherum balance. The refund line WooCommerce recorded on this order no longer matches reality — delete it (Order → Refunds → ×) and this order goes back to \"%3$s\", or retry the refund from the Cherum dashboard."
 msgstr ""
 
 #. translators: %s: event type name.
-#: includes/class-cherum-pay-webhook.php:780
+#: includes/class-cherum-pay-webhook.php:797
 #, php-format
 msgid "Cherum Pay: received an event this plugin version does not handle (%s)."
 msgstr ""

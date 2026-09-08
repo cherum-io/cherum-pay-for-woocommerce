@@ -30,6 +30,29 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 	);
 
 	/**
+	 * The smallest invoice Cherum will create, in US dollars.
+	 *
+	 * NOT A NUMBER OF THIS PLUGIN'S (1.3.7). It is Cherum's own limit, enforced
+	 * when the invoice is created: below it the request is refused with
+	 * `amount_too_small`, because the network fee to move the money would be
+	 * larger than the money. Cherum converts the order into dollars first, so
+	 * the floor is a DOLLAR figure whatever the shop's currency is — see
+	 * min_total().
+	 *
+	 * WHY A COPY AND NOT A QUESTION. `GET /me` reports what the key is and
+	 * which features are switched on; it publishes no limits, and no other
+	 * route does either (checked 8 Sep 2026). A store cannot ask a question
+	 * that has no route, and it has to decide BEFORE asking for the invoice —
+	 * otherwise the buyer meets the refusal on "Place order", which is the
+	 * dead end this exists to end.
+	 *
+	 * A copy drifts, so a machine keeps it honest: the plugin's own test suite
+	 * reads this number out of the service's source and fails when the two
+	 * differ, the way the currency list above is checked.
+	 */
+	const MIN_INVOICE_USD = 0.50;
+
+	/**
 	 * Constructor.
 	 */
 	public function __construct() {
@@ -492,6 +515,168 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 	}
 
 	/**
+	 * The smallest order this store can actually be paid for, in ITS currency.
+	 *
+	 * WHY THIS EXISTS (1.3.7). The floor is in dollars and the shop is not, so
+	 * the shop's own rate is the missing half. The service works that rate out
+	 * itself on every invoice it creates and hands both halves back
+	 * (`amountUsd` beside the order total), so the store learns it from the
+	 * service instead of inventing it — see remember_usd_rate(). A shop in
+	 * dollars needs no rate at all.
+	 *
+	 * ZERO MEANS "NOT KNOWN", AND NOTHING IS DONE WITH IT. A shop in another
+	 * currency that has never had an invoice created has no rate yet, and a
+	 * floor guessed from nothing would either hide a payment method that works
+	 * or promise one that does not. Both callers treat 0.0 as "carry on
+	 * exactly as before".
+	 *
+	 * ROUNDED UP TO THE SHOP'S OWN PRECISION, because the service rounds the
+	 * amount up to the currency's minor unit before converting: anything below
+	 * this cannot clear the floor once converted.
+	 *
+	 * @return float The floor in the shop's currency, or 0.0 when unknown.
+	 */
+	public static function min_total() {
+		if ( ! function_exists( 'get_woocommerce_currency' ) ) {
+			return 0.0;
+		}
+		$currency = get_woocommerce_currency();
+		if ( ! in_array( $currency, self::CURRENCIES, true ) ) {
+			return 0.0;
+		}
+		$rate = 1.0;   // dollars per unit of the shop's currency
+		if ( 'USD' !== $currency ) {
+			if ( self::setting( 'usd_rate_currency' ) !== $currency ) {
+				return 0.0;
+			}
+			$rate = (float) self::setting( 'usd_rate', '0' );
+			if ( $rate <= 0 ) {
+				return 0.0;
+			}
+		}
+		$factor = pow( 10, wc_get_price_decimals() );
+		/* The trim before the rounding up is not decoration: 0.50 / 1.0 * 100
+		   is 50.000000000000007 often enough in binary floating point, and a
+		   bare ceil() would turn a floor of $0.50 into $0.51 on every shop in
+		   the world. The service does the same thing for the same reason
+		   (`roundToCurrency`). */
+		$scaled = (float) number_format( self::MIN_INVOICE_USD / $rate * $factor, 6, '.', '' );
+		return ceil( $scaled ) / $factor;
+	}
+
+	/**
+	 * Keep the shop's exchange rate as the SERVICE worked it out.
+	 *
+	 * The pair is already stored on the order for refunds; this is the same
+	 * pair kept once for the shop, which is what a floor at checkout needs —
+	 * there is no order yet at the moment the method has to decide whether to
+	 * appear.
+	 *
+	 * Written only when it moves by more than a percent, so an ordinary shop
+	 * writes this option once rather than on every order.
+	 *
+	 * @param string $currency Order currency.
+	 * @param float  $total    Order total in that currency.
+	 * @param float  $usd      What the service priced it at, in dollars.
+	 */
+	private function remember_usd_rate( $currency, $total, $usd ) {
+		if ( '' === (string) $currency || $total <= 0 || $usd <= 0 ) {
+			return;
+		}
+		$rate = $usd / $total;
+		$was  = (float) $this->get_option( 'usd_rate', '0' );
+		if ( (string) $currency === (string) $this->get_option( 'usd_rate_currency' )
+			&& $was > 0 && abs( $rate - $was ) / $was < 0.01 ) {
+			return;
+		}
+		$this->update_option( 'usd_rate', (string) $rate );
+		$this->update_option( 'usd_rate_currency', (string) $currency );
+	}
+
+	/**
+	 * What is about to be paid, when there is anything to judge.
+	 *
+	 * The checkout has a cart; "Pay for order" has an order and no cart worth
+	 * reading. Anything else — the admin, a cron pass, a REST call with no
+	 * session — has neither, and answers 0.0, which every caller reads as "do
+	 * not judge".
+	 *
+	 * @return float
+	 */
+	public static function current_total() {
+		if ( function_exists( 'is_wc_endpoint_url' ) && is_wc_endpoint_url( 'order-pay' ) ) {
+			global $wp;
+			$id    = isset( $wp->query_vars['order-pay'] ) ? absint( $wp->query_vars['order-pay'] ) : 0;
+			$order = $id ? wc_get_order( $id ) : false;
+			/* Only when the order is in the currency the floor is expressed in.
+			   On a multi-currency shop an order can be in another one, and
+			   comparing its total against this shop's floor would be comparing
+			   two different kinds of money — a way to hide the method from an
+			   order that is perfectly payable. */
+			if ( $order && $order->get_currency() === get_woocommerce_currency() ) {
+				return (float) $order->get_total();
+			}
+			return 0.0;
+		}
+		if ( function_exists( 'WC' ) && WC()->cart ) {
+			return (float) WC()->cart->get_total( 'edit' );
+		}
+		return 0.0;
+	}
+
+	/**
+	 * Is this amount below what Cherum can invoice for this shop?
+	 *
+	 * @param float $total Amount in the shop's currency.
+	 * @return bool False whenever the floor is unknown or there is nothing to judge.
+	 */
+	public static function below_minimum( $total ) {
+		$floor = self::min_total();
+		return $floor > 0 && $total > 0 && $total < $floor - 0.000000001;
+	}
+
+	/**
+	 * A money figure in the shop's currency, as plain text.
+	 *
+	 * @param float $amount Amount.
+	 * @return string
+	 */
+	private static function plain_money( $amount ) {
+		return html_entity_decode( wp_strip_all_tags( wc_price( (float) $amount ) ), ENT_QUOTES, 'UTF-8' );
+	}
+
+	/**
+	 * Say why there is nothing to pay with, when the reason is the floor.
+	 *
+	 * WHY (1.3.7). Below the floor the method now takes itself off the
+	 * checkout — and on a shop where it is the only method, WooCommerce then
+	 * tells the buyer there are no payment methods "for your location", which
+	 * is not true and gives them nothing to do. The reason is the basket, and
+	 * the basket is the one thing the buyer can change.
+	 *
+	 * Only when the floor is why: a shop with the method switched off, or with
+	 * no key, has its own reason and this must not speak over it.
+	 *
+	 * @param string $message WooCommerce's own sentence.
+	 * @return string
+	 */
+	public static function no_methods_message( $message ) {
+		if ( 'yes' !== self::setting( 'enabled', 'no' ) || '' === self::setting( 'api_key' ) ) {
+			return $message;
+		}
+		if ( ! self::below_minimum( self::current_total() ) ) {
+			return $message;
+		}
+		return esc_html(
+			sprintf(
+				/* translators: %s: the smallest payable amount, in the shop's currency. */
+				__( 'This order is too small to pay in crypto: the smallest payment Cherum can take is %s, because moving less than that costs more in network fees than the payment itself. Add a little more to the basket.', 'cherum-pay-for-woocommerce' ),
+				self::plain_money( self::min_total() )
+			)
+		);
+	}
+
+	/**
 	 * The crypto discount, as a cart fee.
 	 *
 	 * A NEGATIVE fee rather than a coupon on purpose: a coupon shows up in
@@ -562,7 +747,22 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 		   something to charge, whatever the rate and whatever the currency;
 		   when even that is nothing to give away, no fee is added at all. */
 		$unit = pow( 10, -wc_get_price_decimals() );
-		$off  = min( $off, round( max( 0, $base - $unit ), wc_get_price_decimals() ) );
+		/* AND WHAT SURVIVES HAS TO BE PAYABLE (1.3.7). One unit of the currency
+		   keeps WooCommerce from completing the order without a gateway, and
+		   that was the whole of 1.3.5's fix — but a cart of one cent cannot be
+		   invoiced either: the service refuses anything under MIN_INVOICE_USD,
+		   and the buyer met that refusal on "Place order" with no way forward
+		   (demo order 93, 08.09: $9.00 goods, a −$8.95 coupon, the discount at
+		   its 90% cap, total $0.01, "Amount is below the minimum of $0.5"). The
+		   discount is ours to cap, so it never takes a cart under what can be
+		   paid; a cart that is under it WITHOUT our discount is not our doing,
+		   and is_available() takes the method off that checkout instead.
+
+		   The goods are measured, not the total: shipping and any other fee sit
+		   on top, so leaving the floor standing on the goods alone leaves the
+		   total at or above it whatever else is in the order. */
+		$keep = max( $unit, self::min_total() );
+		$off  = min( $off, round( max( 0, $base - $keep ), wc_get_price_decimals() ) );
 		if ( $off <= 0 ) {
 			return;
 		}
@@ -641,6 +841,14 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 	 * Refusing loudly in the admin beats a checkout that fails after the buyer
 	 * has already chosen how to pay.
 	 *
+	 * AND AN ORDER TOO SMALL TO INVOICE IS EXACTLY THAT (1.3.7). The service
+	 * will not create an invoice below MIN_INVOICE_USD, so offering the method
+	 * on such an order is offering something that cannot happen: the buyer
+	 * fills the checkout in, presses "Place order" and is told "Amount is below
+	 * the minimum of $0.5" with nothing to do about it. Better to not be on the
+	 * list, and to say why when ours is the only method
+	 * (no_methods_message()).
+	 *
 	 * @return bool
 	 */
 	public function is_available() {
@@ -650,7 +858,10 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 		if ( '' === (string) $this->get_option( 'api_key' ) ) {
 			return false;
 		}
-		return in_array( get_woocommerce_currency(), self::CURRENCIES, true );
+		if ( ! in_array( get_woocommerce_currency(), self::CURRENCIES, true ) ) {
+			return false;
+		}
+		return ! self::below_minimum( self::current_total() );
 	}
 
 	/**
@@ -726,6 +937,27 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 				)
 				. '</p></div>';
 		}
+		/* THE FLOOR, SAID OUT LOUD (1.3.7). The method now takes itself off the
+		   checkout for an order too small to invoice, and a payment method that
+		   disappears without a word is a support ticket. The figure is in the
+		   shop's own currency once the shop has had one invoice priced; until
+		   then it is what it is — a dollar amount. */
+		$floor = self::min_total();
+		echo '<p class="description">'
+			. esc_html(
+				$floor > 0
+					? sprintf(
+						/* translators: %s: the smallest payable order, in the shop's currency. */
+						__( 'Cherum cannot invoice less than %s. An order below that does not show this payment method at checkout (the buyer is told why), and the crypto discount never takes a cart under it.', 'cherum-pay-for-woocommerce' ),
+						self::plain_money( $floor )
+					)
+					: sprintf(
+						/* translators: %s: the smallest payable invoice, in US dollars. */
+						__( 'Cherum cannot invoice less than %s worth of goods — below that the network fee to move the money is larger than the money. Your shop is not in dollars, so the exact figure in your currency is known from your first Cherum order onwards; from then on an order below it does not show this payment method at checkout.', 'cherum-pay-for-woocommerce' ),
+						'$' . number_format( self::MIN_INVOICE_USD, 2 )
+					)
+			)
+			. '</p>';
 		$status = (string) $this->get_option( 'webhook_status' );
 		if ( 'yes' === $this->get_option( 'enabled' ) && '' !== $key && '' === (string) $this->get_option( 'webhook_secret' ) ) {
 			echo '<div class="notice notice-warning inline"><p>'
@@ -1102,6 +1334,10 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 		if ( isset( $invoice['amountUsd'] ) && is_numeric( $invoice['amountUsd'] ) ) {
 			$order->update_meta_data( '_cherum_invoice_usd', (string) $invoice['amountUsd'] );
 			$order->update_meta_data( '_cherum_order_total', (string) $order->get_total() );
+			/* The same pair, kept once for the SHOP: the checkout has to know
+			   the smallest order it can take before there is any order to read
+			   it from (1.3.7, see min_total()). */
+			$this->remember_usd_rate( $order->get_currency(), (float) $order->get_total(), (float) $invoice['amountUsd'] );
 		}
 		$order->save();
 		self::log( 'invoice ' . $id . ' created for order ' . $order->get_id() );
@@ -1947,6 +2183,15 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 	 * @param WC_Order $order Order.
 	 */
 	private static function poll_order( $order ) {
+		/* THE NET IS FOR ORDERS THAT HAVE NOT BEEN PAID (1.3.7). An order paid
+		   on an EARLIER invoice carries a current invoice nobody paid, and that
+		   one expires: asking about it can only produce a closing event for an
+		   order the money has already closed. The handler refuses to act on one
+		   (see the invoice.expired branch), and asking at all is a request
+		   nobody needed — a paid order has nothing left to learn here. */
+		if ( $order->is_paid() ) {
+			return;
+		}
 		$invoice_id = (string) $order->get_meta( '_cherum_invoice_id' );
 		$key        = self::setting( 'api_key' );
 		if ( '' === $invoice_id || '' === $key ) {

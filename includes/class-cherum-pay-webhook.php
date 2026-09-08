@@ -607,6 +607,25 @@ class Cherum_Pay_Webhook {
 				break;
 
 			case 'invoice.expired':
+				/* AN EXPIRY NEVER OUTRANKS A PAYMENT (1.3.7). The "cancel"
+				   branch below has always asked this, and the "keep" branch
+				   never did — harmless while "keep" only wrote a note, and not
+				   harmless since 1.3.5 made it e-mail the buyer. An order can
+				   be paid on an invoice that has since been replaced (the buyer
+				   comes back to a pending order and pays the old one inside the
+				   late window — demo order 79), and the replaced-by invoice then
+				   expires unpaid: that is one expiry event on a completed,
+				   fully paid order, and it walked out as "here are the details
+				   of your order, with a link to pay it" to somebody who had
+				   already paid. The event is still worth a line, the way a
+				   cancellation of a paid invoice is: the contradiction is real
+				   and the shop owner should be able to read it. */
+				if ( $order->is_paid() ) {
+					$order->add_order_note(
+						__( 'Cherum Pay: an invoice on this order expired unpaid, but the order has already been paid — on an earlier invoice. Nothing was changed and nothing was sent to the buyer.', 'cherum-pay-for-woocommerce' )
+					);
+					break;
+				}
 				if ( 'keep' === Cherum_Pay_Gateway::setting( 'expired_action', 'cancel' ) ) {
 					/* THE E-MAIL THE NOTE PROMISED (1.3.3). Both this note and
 					   the setting's own description told the shop owner the
@@ -625,12 +644,10 @@ class Cherum_Pay_Webhook {
 					);
 					break;
 				}
-				if ( ! $order->is_paid() ) {
-					$order->update_status(
-						'cancelled',
-						__( 'Cherum Pay: the invoice expired without payment.', 'cherum-pay-for-woocommerce' )
-					);
-				}
+				$order->update_status(
+					'cancelled',
+					__( 'Cherum Pay: the invoice expired without payment.', 'cherum-pay-for-woocommerce' )
+				);
 				break;
 
 			case 'invoice.created':

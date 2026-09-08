@@ -4,7 +4,7 @@ Tags: woocommerce, cryptocurrency, payment gateway, usdc, stablecoin
 Requires at least: 6.5
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.3.6
+Stable tag: 1.3.7
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -35,6 +35,7 @@ A few things you will notice once it runs:
 * A Cherum account and an API key. Both take a couple of minutes at https://app.cherum.io.
 * A store on https. Notifications are only sent to a public https address; a local test site still works through the 15-minute check.
 * A store currency Cherum can price: USD, EUR, GBP, CHF, JPY, CAD, AUD, NZD, SEK, NOK, DKK, PLN, CZK, HUF, RON, BGN, TRY, BRL, MXN, INR, ZAR, SGD, HKD, KRW, CNY, IDR, MYR, PHP, THB, ILS, AED, SAR. In any other currency the method stays hidden at checkout and the settings screen tells you why.
+* Orders of at least $0.50. Moving less than that costs more in network fees than the payment itself, so Cherum will not invoice it: a smaller order does not show this payment method at checkout, and the buyer is told why. The settings screen names the figure in your own currency.
 
 == External services ==
 
@@ -77,7 +78,7 @@ The order still closes. The signed notification decides the order, not the brows
 
 = Why does the method not appear at checkout? =
 
-Three usual reasons: no API key, a store currency Cherum cannot price, or the method is switched off. The settings screen says which.
+Four usual reasons: no API key, a store currency Cherum cannot price, the method is switched off, or the order is smaller than the $0.50 Cherum can invoice. The settings screen says which, and a buyer looking at an order too small to pay in crypto is told so at the checkout.
 
 = My store has no https yet. Does it work? =
 
@@ -100,6 +101,11 @@ Yes, with the classic checkout and with the Cart and Checkout blocks. Nothing to
 5. Settings: one key, connected.
 
 == Changelog ==
+
+= 1.3.7 =
+* A discount can no longer make an order too small to pay for. Cherum will not invoice less than $0.50 — below that the network fee to move the money is larger than the money — and with a large discount next to a coupon the cart could land under that: the buyer filled in the checkout, pressed "Place order" and was told "Amount is below the minimum of $0.5" with nothing they could do about it. The discount now stops at the smallest payable amount, whatever the rate and the currency.
+* An order that is too small on its own does not offer this payment method at all, and when it is the only method the buyer is told why and what to do — instead of "there are no payment methods for your location", which was neither true nor useful. The settings screen names the figure. In a shop whose currency is not the US dollar the exact figure is the one Cherum priced your last order at, so it is known from your first Cherum order onwards.
+* An invoice that expires on an order that has already been paid no longer writes to the buyer. An order can be paid on an invoice that was replaced since — a buyer coming back to a pending order and paying the first one — and when the replacement expired, "Leave it pending" e-mailed the person who had already paid the details of their order with a link to pay it. The expiry is recorded on the order and nothing else happens; the safety-net check no longer asks about paid orders either.
 
 = 1.3.6 =
 * A refund that has not been paid out yet can be called off from the order screen: Order actions → "Cancel Cherum refund" → Update. Cherum allows one open refund per payment, and an open one can wait days for the buyer to give a wallet — until now that left the shop unable to finish it, replace it or end it without opening another dashboard.
