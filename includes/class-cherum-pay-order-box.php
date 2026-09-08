@@ -17,11 +17,51 @@ defined( 'ABSPATH' ) || exit;
  */
 class Cherum_Pay_Order_Box {
 
+	/** The Order actions entry that calls an open refund off. */
+	const CANCEL_ACTION = 'cherum_pay_cancel_refund';
+
 	/**
 	 * Hook it up for both order storage modes.
 	 */
 	public static function init() {
 		add_action( 'add_meta_boxes', array( __CLASS__, 'register' ) );
+		/* CANCELLING A REFUND LIVES IN WOOCOMMERCE'S OWN ORDER ACTIONS (1.3.6).
+		   Not a link or a form of our own: the meta box is rendered inside the
+		   order edit form, so a second form there is invalid markup, and a
+		   route of our own would mean re-implementing the nonce and capability
+		   check WooCommerce already does for this box. The entry appears only
+		   when there IS something to cancel — an action that is always there
+		   and usually does nothing teaches people to ignore it. */
+		add_filter( 'woocommerce_order_actions', array( __CLASS__, 'order_actions' ), 10, 2 );
+		add_action( 'woocommerce_order_action_' . self::CANCEL_ACTION, array( __CLASS__, 'run_cancel_refund' ) );
+	}
+
+	/**
+	 * Offer "Cancel Cherum refund" while a refund is open on this order.
+	 *
+	 * @param array         $actions Actions WooCommerce is about to show.
+	 * @param WC_Order|null $order   The order, since WooCommerce 5.8.
+	 * @return array
+	 */
+	public static function order_actions( $actions, $order = null ) {
+		if ( $order instanceof WC_Order
+			&& 'cherum_pay' === $order->get_payment_method()
+			&& '' !== Cherum_Pay_Gateway::open_refund_id( $order ) ) {
+			$actions[ self::CANCEL_ACTION ] = __( 'Cancel Cherum refund', 'cherum-pay-for-woocommerce' );
+		}
+		return $actions;
+	}
+
+	/**
+	 * Run it. The outcome is written on the order by the gateway, which is
+	 * where it survives the redirect this screen does next.
+	 *
+	 * @param WC_Order $order Order WooCommerce hands over.
+	 */
+	public static function run_cancel_refund( $order ) {
+		if ( $order instanceof WC_Order ) {
+			Cherum_Pay_Gateway::cancel_refund( $order );
+		}
 	}
 
 	/**
@@ -88,7 +128,17 @@ class Cherum_Pay_Order_Box {
 			echo '<p style="margin:10px 0 4px"><a class="button" href="' . esc_url( $url ) . '" target="_blank" rel="noopener noreferrer">'
 				. esc_html__( 'Open the payment page', 'cherum-pay-for-woocommerce' ) . '</a></p>';
 		}
-		if ( $order->is_paid() ) {
+		/* AN OPEN REFUND IS SAID OUT LOUD (1.3.6). Cherum allows one open
+		   refund per invoice, and an open one can sit for days waiting for the
+		   buyer's wallet or for the network cost to come back down. Without
+		   this line the shop owner met the rule only as a refusal — "a refund
+		   is already open on this payment" — with nothing on the screen naming
+		   it and no way to end it. */
+		$open = Cherum_Pay_Gateway::open_refund_id( $order );
+		if ( '' !== $open ) {
+			echo '<p style="margin:10px 0 0"><strong>' . esc_html__( 'A refund is open', 'cherum-pay-for-woocommerce' ) . '</strong> <code>' . esc_html( $open ) . '</code></p>';
+			echo '<p class="description">' . esc_html__( 'Cherum is waiting for the buyer to give a wallet on the payment page, or for the payout to go out. Until it ends, this order cannot start another refund. To call it off: Order actions → "Cancel Cherum refund" → Update. Deleting the refund line under the items cancels it too.', 'cherum-pay-for-woocommerce' ) . '</p>';
+		} elseif ( $order->is_paid() ) {
 			echo '<p class="description">' . esc_html__( 'To refund, use the Refund button under the items. Cherum returns the money to the buyer and the note here says what happened.', 'cherum-pay-for-woocommerce' ) . '</p>';
 		}
 	}

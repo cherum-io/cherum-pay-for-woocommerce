@@ -699,16 +699,24 @@ class Cherum_Pay_Webhook {
 				break;
 
 			case 'refund.created':
+				/* THE STORE REMEMBERS WHICH REFUND IS OPEN (1.3.6). It is what
+				   "Cancel Cherum refund" acts on, and it is what the refusal of
+				   the next refund names — Cherum allows one open refund per
+				   invoice. Recording it here and not only in process_refund()
+				   also covers a refund started in the Cherum dashboard, which
+				   the store would otherwise know nothing about. */
+				Cherum_Pay_Gateway::remember_open_refund( $order, (string) ( $data['id'] ?? '' ) );
 				$order->add_order_note(
 					sprintf(
 						/* translators: %s: refund id. */
-						__( 'Cherum Pay: refund %s is open. The payer is asked for a wallet on the payment page.', 'cherum-pay-for-woocommerce' ),
+						__( 'Cherum Pay: refund %s is open. The payer is asked for a wallet on the payment page. To call it off: Order actions → "Cancel Cherum refund" → Update.', 'cherum-pay-for-woocommerce' ),
 						esc_html( (string) ( $data['id'] ?? '—' ) )
 					)
 				);
 				break;
 
 			case 'refund.completed':
+				Cherum_Pay_Gateway::forget_open_refund( $order, (string) ( $data['id'] ?? '' ) );
 				$order->add_order_note(
 					sprintf(
 						/* translators: 1: refund id, 2: transaction hash. */
@@ -729,15 +737,37 @@ class Cherum_Pay_Webhook {
 				   From this moment the WooCommerce books LIE about this order,
 				   and only the shop owner can make them honest again. Deleting
 				   the refund line ourselves would silently rewrite their books —
-				   telling them beats surprising them. */
+				   telling them beats surprising them.
+				   AND THE HOLD IS NOW REVERSIBLE (1.3.6). Until then this was a
+				   one-way door: the order went on hold and nothing ever put it
+				   back, so a shop that did as the note says — delete the line —
+				   was left with a paid, shipped order sitting "On hold" for
+				   good. The status it came from is remembered here and
+				   restored when the line goes. */
+				$refund_id = (string) ( $data['id'] ?? '' );
+				Cherum_Pay_Gateway::forget_open_refund( $order, $refund_id );
+				$deliberate = Cherum_Pay_Gateway::was_canceled_here( $order, $refund_id );
+				Cherum_Pay_Gateway::remember_status_before_hold( $order );
+				$was = Cherum_Pay_Gateway::status_name( (string) $order->get_meta( Cherum_Pay_Gateway::REFUND_HOLD_META ) );
 				$order->update_status(
 					'on-hold',
-					sprintf(
-						/* translators: 1: event type, 2: refund id. */
-						__( 'Cherum Pay: REFUND DID NOT GO THROUGH (%1$s, %2$s). The money stayed on your Cherum balance. The refund line WooCommerce recorded on this order no longer matches reality — delete it (Order → Refunds → ×) or retry the refund from the Cherum dashboard.', 'cherum-pay-for-woocommerce' ),
-						esc_html( $type ),
-						esc_html( (string) ( $data['id'] ?? '—' ) )
-					)
+					$deliberate
+						/* The shop owner asked for this a moment ago; shouting
+						   at them about it would be noise, and worse, it would
+						   read as if something had gone wrong. */
+						? sprintf(
+							/* translators: 1: refund id, 2: status name the order goes back to. */
+							__( 'Cherum Pay: the refund you cancelled (%1$s) is closed and the money stayed on your Cherum balance. WooCommerce still shows a refund line for it — delete it (Order → Refunds → ×) and this order goes back to "%2$s".', 'cherum-pay-for-woocommerce' ),
+							esc_html( '' !== $refund_id ? $refund_id : '—' ),
+							esc_html( $was )
+						)
+						: sprintf(
+							/* translators: 1: event type, 2: refund id, 3: status name the order goes back to. */
+							__( 'Cherum Pay: REFUND DID NOT GO THROUGH (%1$s, %2$s). The money stayed on your Cherum balance. The refund line WooCommerce recorded on this order no longer matches reality — delete it (Order → Refunds → ×) and this order goes back to "%3$s", or retry the refund from the Cherum dashboard.', 'cherum-pay-for-woocommerce' ),
+							esc_html( $type ),
+							esc_html( '' !== $refund_id ? $refund_id : '—' ),
+							esc_html( $was )
+						)
 				);
 				break;
 

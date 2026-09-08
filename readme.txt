@@ -4,7 +4,7 @@ Tags: woocommerce, cryptocurrency, payment gateway, usdc, stablecoin
 Requires at least: 6.5
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.3.5
+Stable tag: 1.3.6
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -18,7 +18,7 @@ How it differs from the other crypto gateways in this directory:
 
 * **The buyer chooses the coin and the network.** Bitcoin, Ethereum, USDC, USDT, Solana, TON, TRON, BNB and Polygon, with the stablecoins available on eight networks. Most crypto plugins make the shop pick one coin on one network for everyone; here the person with the money decides.
 * **You get one asset.** Whatever the buyer pays with, your balance receives the asset you chose in your Cherum account. You never end up holding a coin you did not want.
-* **Refunds from the WordPress order screen.** Type the amount in the refund box WooCommerce already gives you and press Refund. Partial refunds work too. You do not have to open another dashboard.
+* **Refunds from the WordPress order screen.** Type the amount in the refund box WooCommerce already gives you and press Refund. Partial refunds work too, and a refund still waiting for the buyer's wallet can be called off from Order actions. You do not have to open another dashboard.
 * **Setup is one field.** Paste an API key, save. The plugin registers your store for notifications on its own; there is no secret to copy between two tabs.
 * **0.90%, nothing else.** No monthly fee, no minimum volume, no balance to top up before you can receive money.
 
@@ -44,7 +44,7 @@ Sent when an invoice is created: the order total, the store currency, the order 
 
 Sent when you save the settings: the public address of this store's notification route, so Cherum knows where to send order updates.
 
-Sent when you refund: the invoice identifier, the amount and the reason you typed.
+Sent when you refund: the invoice identifier, the amount and the reason you typed. When you cancel a refund, or when the plugin asks which refund is open on an order, only the refund or invoice identifier is sent.
 
 Received: the invoice identifier, the link to the payment page, and signed notifications about the invoice and refund status.
 
@@ -67,7 +67,9 @@ No. Payments settle to the account you set up at Cherum. The plugin only creates
 
 = How do refunds work? =
 
-Open the order, press Refund, type the amount, confirm. Cherum takes it from your balance and sends it back to the buyer's address. If the balance is short or the network cost is higher than the amount, the refund is refused and the order note says why.
+Open the order, press Refund, type the amount, confirm. Cherum reserves the amount on your balance and asks the buyer, on the payment page, for the wallet to send it to; the money leaves once they answer. If the balance is short or the network cost is higher than the amount, the refund is refused and the order note says why.
+
+One refund at a time per payment. A refund waiting for a wallet can be called off with Order actions → "Cancel Cherum refund" → Update, which puts the reserve back on your balance and lets you start another one. Deleting the refund line WooCommerce recorded does the same.
 
 = What if the shopper closes the browser after paying? =
 
@@ -98,6 +100,13 @@ Yes, with the classic checkout and with the Cart and Checkout blocks. Nothing to
 5. Settings: one key, connected.
 
 == Changelog ==
+
+= 1.3.6 =
+* A refund that has not been paid out yet can be called off from the order screen: Order actions → "Cancel Cherum refund" → Update. Cherum allows one open refund per payment, and an open one can wait days for the buyer to give a wallet — until now that left the shop unable to finish it, replace it or end it without opening another dashboard.
+* Deleting the refund line WooCommerce recorded (Order → Refunds → ×) cancels the Cherum refund too, so a payout can no longer reach the buyer with no record of a refund left in the store.
+* An order put on hold because a refund failed is put back where it was when you delete that refund line. It used to stay "On hold" for ever — including when you did exactly what the note told you to do.
+* "A refund is already open on this payment" now names the refund and says how to end it, instead of stating a rule you could not act on.
+* The Cherum Pay box on the order screen names an open refund while there is one.
 
 = 1.3.5 =
 * The classic checkout re-totals when you change the payment method. Since 1.3.3 the crypto discount appears there, and the totals on screen did not follow the choice: pick crypto last and you placed the order looking at the full price; pick crypto and then something else and you were looking at the discounted total while the order was written at the full price. The amount charged was always the right one — the number on the screen was not.

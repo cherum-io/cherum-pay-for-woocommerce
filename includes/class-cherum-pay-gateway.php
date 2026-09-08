@@ -1392,12 +1392,18 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 		$idem      = 'wc-' . $order_id . '-' . $signature . ( $seq > 0 ? '-' . $seq : '' );
 		$res       = $api->create_refund( $invoice_id, $amount_usd, (string) $reason, $idem );
 		if ( ! $res['ok'] ) {
-			return self::refund_refused(
-				$order,
-				'cherum_refund_failed',
-				$res['error'] ? $res['error'] : __( 'Cherum did not accept the refund.', 'cherum-pay-for-woocommerce' ),
-				$amount
-			);
+			$message = $res['error'] ? $res['error'] : __( 'Cherum did not accept the refund.', 'cherum-pay-for-woocommerce' );
+			/* "ONE AT A TIME" NEEDS A WAY OUT (1.3.6). Cherum's unique index
+			   answers a second refund on the same invoice with
+			   `refund_already_open`, and until now that was the end of the
+			   road inside WooCommerce: the message named the rule and no
+			   screen in the store could end the open one. The refusal now
+			   carries the id and the exact way to call it off. */
+			$code = isset( $res['data']['error']['code'] ) ? (string) $res['data']['error']['code'] : '';
+			if ( 'refund_already_open' === $code ) {
+				$message .= ' ' . self::already_open_hint( $order, $invoice_id, $api );
+			}
+			return self::refund_refused( $order, 'cherum_refund_failed', $message, $amount );
 		}
 
 		$rid  = isset( $res['data']['refund']['id'] ) ? (string) $res['data']['refund']['id'] : '';
@@ -1419,6 +1425,13 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 		}
 		if ( '' !== $rid ) {
 			$order->add_meta_data( '_cherum_refund_ids', $rid, false );
+			/* WHICH REFUND IS OPEN (1.3.6). Cherum allows one open refund per
+			   invoice, and an open one can sit for days — the buyer never
+			   gives a wallet, or the network cost rises above what was
+			   reserved and the payout waits for it to come down. "Cancel
+			   Cherum refund" acts on this id, and the refusal of the next
+			   refund names it. */
+			$order->update_meta_data( self::OPEN_REFUND_META, $rid );
 		}
 		$order->update_meta_data( '_cherum_refund_seq_' . $signature, (string) ( $seq + 1 ) );
 		$order->save();
@@ -1459,6 +1472,368 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 			}
 		}
 		return $out;
+	}
+
+	/* -----------------------------------------------------------------------
+	 * CALLING A REFUND OFF (1.3.6)
+	 *
+	 * THE HOLE THIS FILLS. A Cherum refund is asynchronous and can stay open
+	 * for days: the money leaves only after the buyer names a wallet on the
+	 * payment page, and even then the payout waits if the network cost has
+	 * risen above what was reserved. Cherum allows ONE open refund per invoice
+	 * — the second is refused with `refund_already_open` — so until 1.3.6 a
+	 * stuck refund walled the shop owner in: they could not finish it, could
+	 * not replace it, and the plugin had no cancel call at all. The only way
+	 * out was somebody else's dashboard, which is the thing this plugin exists
+	 * to avoid. Live on 8 September 2026: refund 19883 on order 102 sat
+	 * fifteen minutes over a nineteen-atom price move.
+	 *
+	 * WHERE IT LIVES. In WooCommerce's own Order actions box, next to "Send
+	 * order details to customer" — the native place for a one-off action on an
+	 * order, carrying WooCommerce's nonce and capability check rather than a
+	 * route of our own. The Cherum Pay box beside it names the open refund and
+	 * points at the action. It also runs when the shop owner deletes the
+	 * refund line WooCommerce recorded (Order → Refunds → ×): removing the
+	 * record of a refund while the payout is still live would leave money able
+	 * to leave with nothing in the books to show for it.
+	 * -------------------------------------------------------------------- */
+
+	/** The refund this store believes is open on the order, if any. */
+	const OPEN_REFUND_META = '_cherum_refund_open';
+
+	/** The status the order held before a dead refund put it on hold. */
+	const REFUND_HOLD_META = '_cherum_refund_hold_status';
+
+	/** The refund this store cancelled on purpose, so its event reads calmly. */
+	const CANCELED_HERE_META = '_cherum_refund_canceled_here';
+
+	/**
+	 * The open refund id as far as this store has been told.
+	 *
+	 * @param WC_Order $order Order.
+	 * @return string Refund id, or '' when the store knows of none.
+	 */
+	public static function open_refund_id( $order ) {
+		return (string) $order->get_meta( self::OPEN_REFUND_META );
+	}
+
+	/**
+	 * Record that a refund is open on this order. Also covers a refund started
+	 * from the Cherum dashboard, which reaches the store as `refund.created`.
+	 *
+	 * @param WC_Order $order Order.
+	 * @param string   $id    Refund id.
+	 */
+	public static function remember_open_refund( $order, $id ) {
+		$id = (string) $id;
+		if ( '' === $id || $id === self::open_refund_id( $order ) ) {
+			return;
+		}
+		$order->update_meta_data( self::OPEN_REFUND_META, $id );
+		$order->save();
+	}
+
+	/**
+	 * Forget the open refund once it has reached an end.
+	 *
+	 * The id is checked: a completed refund from last week must not clear the
+	 * record of the one opened this morning.
+	 *
+	 * @param WC_Order $order Order.
+	 * @param string   $id    Refund that ended; '' clears whatever is recorded.
+	 */
+	public static function forget_open_refund( $order, $id = '' ) {
+		$known = self::open_refund_id( $order );
+		if ( '' === $known || ( '' !== (string) $id && $known !== (string) $id ) ) {
+			return;
+		}
+		$order->delete_meta_data( self::OPEN_REFUND_META );
+		$order->save();
+	}
+
+	/**
+	 * Cancel the open Cherum refund on this order.
+	 *
+	 * Writes what happened on the order either way: the pop-up the shop owner
+	 * sees is gone a second later, the note is the copy that survives.
+	 *
+	 * @param WC_Order $order     Order.
+	 * @param string   $refund_id Refund to cancel; '' means the recorded one.
+	 * @return array{ok:bool,message:string}
+	 */
+	public static function cancel_refund( $order, $refund_id = '' ) {
+		$id = '' !== (string) $refund_id ? (string) $refund_id : self::open_refund_id( $order );
+		if ( '' === $id ) {
+			return self::cancel_outcome( $order, false, __( 'There is no Cherum refund open on this order.', 'cherum-pay-for-woocommerce' ), false );
+		}
+		if ( ! preg_match( '/^[0-9]{1,12}$/', $id ) ) {
+			/* Cherum numbers its refunds. Anything else on this order came
+			   from a hand-edited meta field or a broken restore, and sending
+			   it would earn a bare 400 from the service. */
+			return self::cancel_outcome(
+				$order,
+				false,
+				sprintf(
+					/* translators: %s: the refund id recorded on the order. */
+					__( 'The refund recorded on this order (%s) is not a Cherum refund number, so it cannot be cancelled from here. Look under Accept → Refunds in the Cherum dashboard.', 'cherum-pay-for-woocommerce' ),
+					$id
+				),
+				true
+			);
+		}
+		$key = self::setting( 'api_key' );
+		if ( '' === $key ) {
+			return self::cancel_outcome( $order, false, __( 'Add your Cherum API key in the payment settings before cancelling a refund.', 'cherum-pay-for-woocommerce' ), false );
+		}
+		if ( 0 === strpos( $key, 'chm_test_' ) ) {
+			/* Same rule as opening one, and for the same reason: refunds move
+			   real money, so the service takes them only from a live key. */
+			return self::cancel_outcome( $order, false, __( 'This store is connected with a rehearsal key (chm_test_), which cannot touch refunds. Connect a live key (chm_live_) or cancel the refund in the Cherum dashboard.', 'cherum-pay-for-woocommerce' ), false );
+		}
+
+		$api = new Cherum_Pay_Api( $key );
+		$res = $api->cancel_refund( $id );
+		if ( $res['ok'] ) {
+			self::forget_open_refund( $order, $id );
+			// So the event that follows reads as the deliberate act it was,
+			// instead of shouting "REFUND DID NOT GO THROUGH" at the person
+			// who has just asked for exactly this.
+			$order->update_meta_data( self::CANCELED_HERE_META, $id );
+			$order->save();
+			self::log( 'refund ' . $id . ' cancelled from order ' . $order->get_id() );
+			return self::cancel_outcome(
+				$order,
+				true,
+				sprintf(
+					/* translators: %s: refund id. */
+					__( 'Cherum Pay: refund %s was cancelled from this store. No money left — the reserve went back to your Cherum balance. WooCommerce still shows a refund line for it: delete it (Order → Refunds → ×) to make the books match.', 'cherum-pay-for-woocommerce' ),
+					$id
+				),
+				true
+			);
+		}
+
+		/* A refusal that names the refund as gone is also an answer about our
+		   own record: it is stale, and keeping it would leave the action on
+		   the screen for ever. A network failure (status 0) is not an answer
+		   and changes nothing. */
+		if ( in_array( (int) $res['status'], array( 404, 409 ), true ) ) {
+			self::forget_open_refund( $order, $id );
+		}
+		$message = '' !== $res['error'] ? $res['error'] : __( 'Cherum did not answer the cancellation.', 'cherum-pay-for-woocommerce' );
+		self::log( 'refund ' . $id . ' NOT cancelled for order ' . $order->get_id() . ': ' . $message );
+		return self::cancel_outcome(
+			$order,
+			false,
+			sprintf(
+				/* translators: 1: refund id, 2: reason from the service. */
+				__( 'Cherum Pay: refund %1$s was NOT cancelled — %2$s', 'cherum-pay-for-woocommerce' ),
+				$id,
+				$message
+			),
+			true
+		);
+	}
+
+	/**
+	 * One exit from cancel_refund(): the sentence goes on the order and comes
+	 * back to the caller, so the two can never say different things.
+	 *
+	 * @param WC_Order $order   Order.
+	 * @param bool     $ok      Whether the refund was cancelled.
+	 * @param string   $message Sentence for the shop owner.
+	 * @param bool     $note    Whether it is worth a note (a state the shop
+	 *                          owner did not cause is not).
+	 * @return array{ok:bool,message:string}
+	 */
+	private static function cancel_outcome( $order, $ok, $message, $note ) {
+		if ( $note ) {
+			$order->add_order_note( $message );
+		}
+		return array( 'ok' => (bool) $ok, 'message' => $message );
+	}
+
+	/**
+	 * The sentence appended to a `refund_already_open` refusal.
+	 *
+	 * The store usually knows the open refund from its own request or from
+	 * `refund.created`. When it does not — the refund was started in the
+	 * Cherum dashboard, or the order meta was lost with a restore — the id is
+	 * asked for, because "one at a time" without the id of the one is a rule
+	 * with no way to obey it.
+	 *
+	 * @param WC_Order        $order      Order.
+	 * @param string          $invoice_id Invoice the refund is on.
+	 * @param Cherum_Pay_Api  $api        Client already built by the caller.
+	 * @return string
+	 */
+	private static function already_open_hint( $order, $invoice_id, $api ) {
+		$id     = self::open_refund_id( $order );
+		$status = '' !== $id ? 'requested' : '';
+		if ( '' === $id ) {
+			$found  = self::look_up_open_refund( $order, $invoice_id, $api );
+			$id     = $found['id'];
+			$status = $found['status'];
+		}
+		if ( '' === $id ) {
+			return __( 'This store cannot tell which refund is open — ask Cherum under Accept → Refunds, cancel it there, and refund again.', 'cherum-pay-for-woocommerce' );
+		}
+		if ( 'sent' === $status ) {
+			return sprintf(
+				/* translators: %s: refund id. */
+				__( 'Refund %s is already on its way to the buyer and cannot be called off; wait for it to finish, then refund again.', 'cherum-pay-for-woocommerce' ),
+				$id
+			);
+		}
+		return sprintf(
+			/* translators: %s: refund id. */
+			__( 'The open one is %s: to call it off, choose Order actions → "Cancel Cherum refund" and press Update, then refund again.', 'cherum-pay-for-woocommerce' ),
+			$id
+		);
+	}
+
+	/**
+	 * Ask the service which refund is open on this invoice.
+	 *
+	 * A cancellable one is recorded on the order, so the action appears on the
+	 * screen the shop owner is already looking at.
+	 *
+	 * @param WC_Order       $order      Order.
+	 * @param string         $invoice_id Invoice.
+	 * @param Cherum_Pay_Api $api        Client.
+	 * @return array{id:string,status:string}
+	 */
+	private static function look_up_open_refund( $order, $invoice_id, $api ) {
+		$none = array( 'id' => '', 'status' => '' );
+		$res  = $api->list_refunds( $invoice_id );
+		if ( ! $res['ok'] || empty( $res['data']['refunds'] ) || ! is_array( $res['data']['refunds'] ) ) {
+			return $none;
+		}
+		foreach ( $res['data']['refunds'] as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+			$id     = isset( $row['id'] ) ? (string) $row['id'] : '';
+			$status = isset( $row['status'] ) ? (string) $row['status'] : '';
+			// 'sent' is open but signed: the money is in flight and nothing
+			// can call it back. The first two are the cancellable ones.
+			if ( '' === $id || ! in_array( $status, array( 'requested', 'processing', 'sent' ), true ) ) {
+				continue;
+			}
+			if ( 'sent' !== $status ) {
+				self::remember_open_refund( $order, $id );
+			}
+			return array( 'id' => $id, 'status' => $status );
+		}
+		return $none;
+	}
+
+	/**
+	 * The shop owner deleted the refund line WooCommerce recorded.
+	 *
+	 * TWO THINGS FOLLOW. The Cherum refund, if one is still open, is called
+	 * off: leaving it would let money reach the buyer with no record of a
+	 * refund anywhere in the store. And the order goes back to the status this
+	 * plugin took it away from — the missing half of the on-hold move below,
+	 * which until 1.3.6 left every order with a dead refund on hold for ever.
+	 *
+	 * @param int $refund_id WooCommerce refund line id (already deleted).
+	 * @param int $order_id  Order it belonged to.
+	 */
+	public static function on_refund_deleted( $refund_id, $order_id ) {
+		$order = wc_get_order( $order_id );
+		if ( ! $order instanceof WC_Order || 'cherum_pay' !== $order->get_payment_method() ) {
+			return;
+		}
+		if ( '' !== self::open_refund_id( $order ) ) {
+			self::cancel_refund( $order );
+		}
+		self::restore_status_after_refund( $order );
+	}
+
+	/**
+	 * Remember the status before a dead refund puts the order on hold.
+	 *
+	 * An order already on hold with a status remembered keeps the older value:
+	 * that is the one the shop owner would recognise, and a second dead refund
+	 * must not make "on-hold" the thing we restore.
+	 *
+	 * @param WC_Order $order Order.
+	 */
+	public static function remember_status_before_hold( $order ) {
+		if ( $order->has_status( 'on-hold' ) && '' !== (string) $order->get_meta( self::REFUND_HOLD_META ) ) {
+			return;
+		}
+		$order->update_meta_data( self::REFUND_HOLD_META, (string) $order->get_status() );
+		$order->save();
+	}
+
+	/**
+	 * Put the order back where a dead refund took it from.
+	 *
+	 * Only from on-hold, and only what this plugin itself changed: if the shop
+	 * owner has moved the order since, their choice stands and the note says
+	 * what was not done rather than overruling them.
+	 *
+	 * @param WC_Order $order Order.
+	 */
+	public static function restore_status_after_refund( $order ) {
+		$previous = (string) $order->get_meta( self::REFUND_HOLD_META );
+		if ( '' === $previous ) {
+			return;
+		}
+		$order->delete_meta_data( self::REFUND_HOLD_META );
+		$order->save();
+		if ( ! $order->has_status( 'on-hold' ) ) {
+			$order->add_order_note(
+				sprintf(
+					/* translators: %s: the status name the order held before the refund. */
+					__( 'Cherum Pay: the refund line was deleted. The order was NOT put back to "%s" because its status has been changed since — the status you see now is the one you set.', 'cherum-pay-for-woocommerce' ),
+					self::status_name( $previous )
+				)
+			);
+			return;
+		}
+		if ( $order->has_status( $previous ) ) {
+			return;
+		}
+		$order->update_status(
+			$previous,
+			sprintf(
+				/* translators: %s: the status name the order held before the refund. */
+				__( 'Cherum Pay: the refund line was deleted, so the order goes back to "%s" — the status it held before the refund failed.', 'cherum-pay-for-woocommerce' ),
+				self::status_name( $previous )
+			)
+		);
+	}
+
+	/**
+	 * Was this refund cancelled from this store on purpose? Asking clears the
+	 * mark: it answers exactly one event.
+	 *
+	 * @param WC_Order $order Order.
+	 * @param string   $id    Refund id from the event.
+	 * @return bool
+	 */
+	public static function was_canceled_here( $order, $id ) {
+		$mark = (string) $order->get_meta( self::CANCELED_HERE_META );
+		if ( '' === $mark ) {
+			return false;
+		}
+		$order->delete_meta_data( self::CANCELED_HERE_META );
+		$order->save();
+		return '' === (string) $id || $mark === (string) $id;
+	}
+
+	/**
+	 * A status as the shop owner reads it ("Completed", not "completed").
+	 *
+	 * @param string $status Status slug.
+	 * @return string
+	 */
+	public static function status_name( $status ) {
+		$status = (string) $status;
+		return function_exists( 'wc_get_order_status_name' ) ? (string) wc_get_order_status_name( $status ) : $status;
 	}
 
 	/**

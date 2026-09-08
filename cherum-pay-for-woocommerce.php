@@ -3,7 +3,7 @@
  * Plugin Name:       Cherum Pay for WooCommerce
  * Plugin URI:        https://cherum.io/woocommerce
  * Description:       Accept stablecoin payments in your WooCommerce store through Cherum Pay. The buyer picks the coin and the network; you get paid in the asset you chose.
- * Version:           1.3.5
+ * Version:           1.3.6
  * Requires at least: 6.5
  * Requires PHP:      7.4
  * Requires Plugins:  woocommerce
@@ -23,7 +23,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'CHERUM_PAY_VERSION', '1.3.5' );
+define( 'CHERUM_PAY_VERSION', '1.3.6' );
 define( 'CHERUM_PAY_FILE', __FILE__ );
 define( 'CHERUM_PAY_PATH', plugin_dir_path( __FILE__ ) );
 define( 'CHERUM_PAY_URL', plugin_dir_url( __FILE__ ) );
@@ -65,6 +65,21 @@ add_action(
 		if ( is_admin() ) {
 			Cherum_Pay_Order_Box::init();
 		}
+
+		/* DELETING THE REFUND LINE IS A DECISION, AND IT REACHES CHERUM (1.3.6).
+		 *
+		 * The note this plugin writes when a refund dies tells the shop owner
+		 * to delete the line WooCommerce recorded — and until now that was the
+		 * end of it: the order stayed On hold for ever, and if the Cherum
+		 * refund was still open the payout could yet reach the buyer with no
+		 * record of a refund anywhere in the store. Deleting the line now
+		 * calls the open refund off and puts the order back where the failed
+		 * refund took it from.
+		 *
+		 * Registered outside is_admin(): WooCommerce fires this from its AJAX
+		 * handler (admin) but a refund can also be deleted from WP-CLI, and
+		 * money must not depend on which door the request came through. */
+		add_action( 'woocommerce_refund_deleted', array( 'Cherum_Pay_Gateway', 'on_refund_deleted' ), 10, 2 );
 
 		/* THE CRYPTO DISCOUNT, HOOKED WHERE IT ACTUALLY FIRES (1.3.3).
 		 *

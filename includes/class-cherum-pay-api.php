@@ -141,6 +141,65 @@ class Cherum_Pay_Api {
 	}
 
 	/**
+	 * Call off a refund the buyer has not been paid on yet.
+	 *
+	 * WHY THE PLUGIN NEEDS THIS. Cherum allows one open refund per invoice —
+	 * a second attempt is refused with `refund_already_open`. A refund can sit
+	 * open for days (the buyer never gives a wallet; the network cost rises
+	 * above what was reserved and the payout is retried later), and until
+	 * 1.3.6 the plugin had no way to end one: the shop owner was refused here
+	 * and had to open the Cherum dashboard to get out of it.
+	 *
+	 * The reserve goes back to the merchant balance and `refund.canceled`
+	 * follows. A refund already signed and sent cannot be called off — the
+	 * service answers 409 `not_cancelable`, which is money already in flight,
+	 * not a failure of this call.
+	 *
+	 * @param string $id Cherum refund id (the service numbers them).
+	 * @return array{ok:bool,data:array,error:string,status:int}
+	 */
+	public function cancel_refund( $id ) {
+		$res = wp_remote_post(
+			self::BASE . '/refunds/' . rawurlencode( (string) $id ) . '/cancel',
+			array(
+				'headers' => array(
+					'Authorization' => 'token ' . $this->key,
+					'Content-Type'  => 'application/json',
+				),
+				// The route takes no body; an empty one with a JSON content
+				// type is what the service documents for exactly this case.
+				'body'    => '{}',
+				'timeout' => 20,
+			)
+		);
+		return $this->unwrap( $res );
+	}
+
+	/**
+	 * The refunds this key knows about, narrowed to one invoice.
+	 *
+	 * Used in one place only: after the service refuses a refund because one
+	 * is already open. The store may not know which — the refund can have been
+	 * started from the Cherum dashboard, or the order meta can have been lost
+	 * with a restore — and without the id there is nothing to cancel. This is
+	 * how the plugin finds out instead of telling the shop owner to go and
+	 * look somewhere else.
+	 *
+	 * @param string $invoice_id Invoice to narrow to.
+	 * @return array{ok:bool,data:array,error:string,status:int}
+	 */
+	public function list_refunds( $invoice_id ) {
+		$res = wp_remote_get(
+			self::BASE . '/refunds?invoiceId=' . rawurlencode( (string) $invoice_id ),
+			array(
+				'headers' => array( 'Authorization' => 'token ' . $this->key ),
+				'timeout' => 15,
+			)
+		);
+		return $this->unwrap( $res );
+	}
+
+	/**
 	 * What this key is, and what the service can currently do for it.
 	 *
 	 * The `features` block is why this call exists in the plugin: a setting
