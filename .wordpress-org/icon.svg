@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="Cherum">
+  <circle cx="128" cy="128" r="128" fill="#14111C"/>
+  <g transform="translate(56 56) scale(4.5)" fill="none" stroke="#C9A9F4">
+      <path d="M13.5 10.8 A6 6 0 1 0 13.5 21.2" stroke-width="2.4" stroke-linecap="round"/>
+      <g stroke-width="2" stroke-linecap="round">
+        <path d="M12 16 C 17 14.5, 18 8, 22.5 7"/>
+        <path d="M12.5 16 C 17 16, 18 16, 22.5 16"/>
+        <path d="M12 16 C 17 17.5, 18 24, 22.5 25"/>
+      </g>
+      <g fill="#C9A9F4" stroke="none">
+        <circle cx="24" cy="7" r="2.6"/><circle cx="24" cy="16" r="2.6"/><circle cx="24" cy="25" r="2.6"/>
+      </g>
+    </g>
+</svg>
