@@ -66,10 +66,20 @@
 		} else {
 			icon = null;
 		}
-		if ( PaymentMethodLabel ) {
-			return createElement( PaymentMethodLabel, { text: title, icon: icon } );
+		/* The text first and the coins at the right edge, as card brands sit on a
+		   card method. WooCommerce's PaymentMethodLabel draws its icon BEFORE the
+		   text, so the icon is not handed to it: the row is placed next to it in
+		   a full-width line. */
+		var text = PaymentMethodLabel ? createElement( PaymentMethodLabel, { text: title } ) : title;
+		if ( ! icon ) {
+			return PaymentMethodLabel ? text : createElement( 'span', null, title );
 		}
-		return createElement( 'span', null, title, icon );
+		return createElement(
+			'span',
+			{ className: 'cherum-pay-label', style: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px', width: '100%' } },
+			text,
+			icon
+		);
 	}
 
 	/**

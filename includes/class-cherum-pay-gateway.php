@@ -24,7 +24,7 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 	 */
 	const CURRENCIES = array(
 		'USD', 'EUR', 'GBP', 'CHF', 'JPY', 'CAD', 'AUD', 'NZD',
-		'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'HUF', 'RON', 'BGN',
+		'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'HUF', 'RON',
 		'TRY', 'BRL', 'MXN', 'INR', 'ZAR', 'SGD', 'HKD', 'KRW',
 		'CNY', 'IDR', 'MYR', 'PHP', 'THB', 'ILS', 'AED', 'SAR',
 	);
@@ -68,6 +68,15 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 
 		$this->init_form_fields();
 		$this->init_settings();
+		/* A DEFAULT THE SHOP OWNER NEVER TOUCHED FOLLOWS THE PLUGIN (1.3.10).
+		   Swapped in memory, before anything reads it: the checkout and the
+		   settings screen both show today's default. Nothing is written here;
+		   the next write of the settings (Save, or the plugin's own records
+		   such as the dollar rate) stores the same text the owner now sees. */
+		if ( isset( $this->settings['description'], $this->form_fields['description']['default'] )
+			&& in_array( trim( (string) $this->settings['description'] ), self::legacy_description_defaults(), true ) ) {
+			$this->settings['description'] = $this->form_fields['description']['default'];
+		}
 
 		$this->title       = $this->get_option( 'title', __( 'Pay with crypto', 'cherum-pay-for-woocommerce' ) );
 		$this->description = $this->get_option( 'description' );
@@ -114,10 +123,117 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 			'btc' => 'Bitcoin',
 			'eth' => 'Ethereum',
 			'sol' => 'Solana',
-			'ton' => 'TON',
+			/* The slug is the file name and stays; the label is what the buyer
+			   reads, and the TON network's coin is called GRAM (1.3.10). */
+			'ton' => self::TON_COIN_TICKER,
 			'trx' => 'TRON',
 			'bnb' => 'BNB',
 			'pol' => 'Polygon',
+		);
+	}
+
+	/**
+	 * THE TON NETWORK'S COIN IS CALLED GRAM (1.3.10).
+	 *
+	 * Since 17 Oct 2026 the coin of the TON network is called GRAM, and the
+	 * Cherum payment page shows it so; the network is still TON.
+	 * Cherum's API did NOT change: an invoice, a notification and the order
+	 * meta `_cherum_paid_coin` still carry the value `TON`, because a value
+	 * a store compares and stores is an identifier, not a label. So the
+	 * plugin keeps comparing and storing `TON` and renames the coin only in
+	 * text a person reads — and only the native coin on the `ton` network:
+	 * a token called TON on another network is somebody else's coin.
+	 */
+	const TON_COIN_KEY = 'TON';
+
+	/** What a person reads for the TON network's coin. */
+	const TON_COIN_TICKER = 'GRAM';
+
+	/**
+	 * Network names the way the Cherum payment page prints them, by the key
+	 * the service sends (`network` on an invoice, `chain` on a late payment).
+	 * A key that is not here is printed as it came — a new network reads as
+	 * its key rather than disappearing.
+	 */
+	const NETWORK_NAMES = array(
+		'ethereum' => 'Ethereum',
+		'base'     => 'Base',
+		'arbitrum' => 'Arbitrum',
+		'optimism' => 'Optimism',
+		'polygon'  => 'Polygon',
+		'bsc'      => 'BNB Chain',
+		'hyperevm' => 'HyperEVM',
+		'solana'   => 'Solana',
+		'bitcoin'  => 'Bitcoin',
+		'ton'      => 'TON',
+		'tron'     => 'Tron',
+	);
+
+	/**
+	 * The coin as a person reads it: `TON` on the `ton` network is GRAM,
+	 * everything else is its own value in capitals. Never stored, never
+	 * compared — for that the value as the service sent it is kept.
+	 *
+	 * @param string $coin    Coin value from the service, e.g. "TON", "usdc".
+	 * @param string $network Network key from the service, e.g. "ton", "base".
+	 * @return string
+	 */
+	public static function coin_label( $coin, $network ) {
+		$coin = strtoupper( trim( (string) $coin ) );
+		if ( self::TON_COIN_KEY === $coin && 'ton' === strtolower( trim( (string) $network ) ) ) {
+			return self::TON_COIN_TICKER;
+		}
+		return $coin;
+	}
+
+	/**
+	 * The network as a person reads it ("bsc" → "BNB Chain", "ton" → "TON").
+	 *
+	 * @param string $network Network key from the service.
+	 * @return string
+	 */
+	public static function network_label( $network ) {
+		$names = self::NETWORK_NAMES;
+		$key   = strtolower( trim( (string) $network ) );
+		return isset( $names[ $key ] ) ? $names[ $key ] : trim( (string) $network );
+	}
+
+	/**
+	 * "GRAM · TON", "USDC · Base": coin and network in one line, either half
+	 * left out when the service did not send it.
+	 *
+	 * @param string $coin    Coin value from the service.
+	 * @param string $network Network key from the service.
+	 * @return string
+	 */
+	public static function rail_label( $coin, $network ) {
+		$parts = array_filter(
+			array( self::coin_label( $coin, $network ), self::network_label( $network ) ),
+			static function ( $part ) {
+				return '' !== $part;
+			}
+		);
+		return implode( ' · ', $parts );
+	}
+
+	/**
+	 * Checkout descriptions this plugin once shipped as the default, exactly.
+	 *
+	 * WooCommerce writes every field into the settings on the first save, so
+	 * a store that kept the default holds the old sentence, not a pointer to
+	 * the default — changing the default alone reaches only new installs.
+	 * A saved description that is word for word one of these was never
+	 * edited by the shop owner and is shown as today's default; any other
+	 * text is theirs and is left alone.
+	 *
+	 * @return string[]
+	 */
+	public static function legacy_description_defaults() {
+		return array(
+			// 1.2.2 to 1.3.9: named the TON network's coin "TON".
+			'Bitcoin, Ethereum, USDC, USDT, Solana, TON and more — on the network you already use. No account, no card, no app to install.',
+			// 1.0.0 to 1.2.1: named only the stablecoins, though more could be paid with.
+			'Pay in USDC or USDT on the network you prefer. No account needed.',
 		);
 	}
 
@@ -338,7 +454,7 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 			'description'    => array(
 				'title'   => __( 'Description at checkout', 'cherum-pay-for-woocommerce' ),
 				'type'    => 'textarea',
-				'default' => __( 'Bitcoin, Ethereum, USDC, USDT, Solana, TON and more — on the network you already use. No account, no card, no app to install.', 'cherum-pay-for-woocommerce' ),
+				'default' => __( 'Bitcoin, Ethereum, USDC, USDT, Solana, GRAM and more — on the network you already use. No account, no card, no app to install.', 'cherum-pay-for-woocommerce' ),
 			),
 			'api_key'        => array(
 				'title'       => __( 'API key', 'cherum-pay-for-woocommerce' ),
@@ -514,6 +630,119 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 		return (string) $kept;
 	}
 
+	/** How often the store asks Cherum what the cheapest coin costs today (10 min). */
+	const RAIL_FLOOR_EVERY = 600;
+
+	/**
+	 * THE OTHER FLOOR — the one the coins have, not the one the invoice has.
+	 *
+	 * WHY THIS EXISTS (1.3.9). There are TWO floors under a crypto payment and
+	 * until now the plugin knew only one of them. $0.50 (MIN_INVOICE_USD) is the
+	 * floor on CREATING an invoice. The floor on PAYING one belongs to the coin
+	 * and the network — moving money costs the network the same whether the
+	 * payment is large or small — and today the cheapest of those is $2 (USDC on
+	 * Base), while Ethereum asks $175. An invoice where the buyer picks the coin
+	 * is refused outright under the cheapest of them.
+	 *
+	 * So between $0.50 and $2 this plugin used to offer a payment method that
+	 * could not work: the buyer filled the checkout in and Cherum refused on
+	 * "Place order". The figure was not guessable and not published — now it is
+	 * (`GET /me` → `minimums.cheapestRailUsd`), and the store asks for it.
+	 *
+	 * NEVER FROM THE BUYER'S REQUEST. The answer is kept in the settings, like
+	 * the exchange rate and the receipt feature beside it, and refreshed on two
+	 * occasions only: when the shop owner saves the settings (so a new key gives
+	 * a fresh answer at once) and from the safety-net cron pass, at most once
+	 * every RAIL_FLOOR_EVERY. A checkout must never wait on Cherum to decide
+	 * whether to show a payment method.
+	 *
+	 * UNKNOWN MEANS "AS BEFORE". A store that has not asked yet — just upgraded,
+	 * no cron, no save — falls back to MIN_INVOICE_USD, which is exactly what
+	 * 1.3.8 did. Nothing new breaks while the answer is missing, and nothing is
+	 * guessed.
+	 *
+	 * @return float The cheapest floor in dollars, or 0.0 when not known.
+	 */
+	public static function rail_floor_usd() {
+		$v = (float) self::setting( 'rail_floor_usd', '0' );
+		/* A figure out of all proportion is not a floor, it is a broken answer:
+		   a shop must not hide its payment method because a field came back
+		   wrong. Cherum's dearest rail is $175 today; ten times that is room
+		   for any future gas spike and still a wall against nonsense. */
+		return ( $v > 0 && $v <= 2000 ) ? $v : 0.0;
+	}
+
+	/**
+	 * The floor in dollars that actually applies to this store: the higher of
+	 * the two, because an order has to clear both.
+	 *
+	 * @return float
+	 */
+	public static function floor_usd() {
+		return max( self::MIN_INVOICE_USD, self::rail_floor_usd() );
+	}
+
+	/**
+	 * Ask Cherum what the cheapest coin takes today, and keep the answer.
+	 *
+	 * @param bool $force Ask now, ignoring the every-ten-minutes throttle.
+	 * @return void
+	 */
+	public static function refresh_rail_floor( $force = false ) {
+		$key = (string) self::setting( 'api_key' );
+		if ( '' === $key ) {
+			return;
+		}
+		if ( ! $force && get_transient( 'cherum_pay_floor_checked' ) ) {
+			return;
+		}
+		set_transient( 'cherum_pay_floor_checked', 1, self::RAIL_FLOOR_EVERY );
+		self::store_rail_floor( ( new Cherum_Pay_Api( $key ) )->me() );
+	}
+
+	/**
+	 * Keep the floor out of an answer Cherum has already given.
+	 *
+	 * Separate from the call above because a save needs BOTH halves of the same
+	 * answer — the buyer-receipt switch and the floor — and asking twice for one
+	 * body would be two requests for one question.
+	 *
+	 * A FAILURE CHANGES NOTHING. Unreachable, an older service with no
+	 * `minimums` block, a key that has just been revoked — the stored figure
+	 * stays as it was and the store carries on with it. Erasing what we know
+	 * because one call failed is how a working checkout starts hiding itself.
+	 *
+	 * @param array|null $res Answer from GET /me, or null when it was not asked.
+	 * @return void
+	 */
+	private static function store_rail_floor( $res ) {
+		if ( ! is_array( $res ) || empty( $res['ok'] ) || ! isset( $res['data']['minimums'] ) ) {
+			return;
+		}
+		$mins = (array) $res['data']['minimums'];
+		/* `null` is an answer, not a silence: Cherum is telling us it cannot
+		   name a floor right now (the deposit rail is switched off, or this key
+		   is not linked to an account). Under it NO amount can be paid by a
+		   buyer picking the coin, so hiding the method by a number would be the
+		   wrong lesson — we keep what we had and let Cherum refuse with its own
+		   sentence if it comes to that. */
+		if ( ! isset( $mins['cheapestRailUsd'] ) || ! is_numeric( $mins['cheapestRailUsd'] ) ) {
+			return;
+		}
+		$floor = (float) $mins['cheapestRailUsd'];
+		if ( $floor <= 0 ) {
+			return;
+		}
+		$o = (array) get_option( 'woocommerce_cherum_pay_settings', array() );
+		$was = (string) ( isset( $o['rail_floor_usd'] ) ? $o['rail_floor_usd'] : '' );
+		$o['rail_floor_usd'] = (string) $floor;
+		$o['rail_floor_at']  = (string) time();
+		update_option( 'woocommerce_cherum_pay_settings', $o, 'yes' );
+		if ( $was !== (string) $floor ) {
+			self::log( 'the cheapest coin now takes $' . $floor . ( '' !== $was ? ' (was $' . $was . ')' : '' ) );
+		}
+	}
+
 	/**
 	 * The smallest order this store can actually be paid for, in ITS currency.
 	 *
@@ -560,7 +789,7 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 		   bare ceil() would turn a floor of $0.50 into $0.51 on every shop in
 		   the world. The service does the same thing for the same reason
 		   (`roundToCurrency`). */
-		$scaled = (float) number_format( self::MIN_INVOICE_USD / $rate * $factor, 6, '.', '' );
+		$scaled = (float) number_format( self::floor_usd() / $rate * $factor, 6, '.', '' );
 		return ceil( $scaled ) / $factor;
 	}
 
@@ -948,16 +1177,39 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 				$floor > 0
 					? sprintf(
 						/* translators: %s: the smallest payable order, in the shop's currency. */
-						__( 'Cherum cannot invoice less than %s. An order below that does not show this payment method at checkout (the buyer is told why), and the crypto discount never takes a cart under it.', 'cherum-pay-for-woocommerce' ),
+						__( 'Orders from %s. An order below that does not show this payment method at checkout (the buyer is told why), and the crypto discount never takes a cart under it.', 'cherum-pay-for-woocommerce' ),
 						self::plain_money( $floor )
 					)
 					: sprintf(
 						/* translators: %s: the smallest payable invoice, in US dollars. */
-						__( 'Cherum cannot invoice less than %s worth of goods — below that the network fee to move the money is larger than the money. Your shop is not in dollars, so the exact figure in your currency is known from your first Cherum order onwards; from then on an order below it does not show this payment method at checkout.', 'cherum-pay-for-woocommerce' ),
-						'$' . number_format( self::MIN_INVOICE_USD, 2 )
+						__( 'Orders from %s. Your shop is not in dollars, so the exact figure in your currency is known from your first Cherum order onwards; from then on an order below it does not show this payment method at checkout.', 'cherum-pay-for-woocommerce' ),
+						'$' . number_format( self::floor_usd(), 2 )
 					)
 			)
 			. '</p>';
+		/* WHERE THAT FIGURE COMES FROM (1.3.9). Two floors, and the shop owner
+		   is entitled to know which one is biting: $0.50 is Cherum refusing to
+		   create an invoice at all, the other belongs to the cheapest coin and
+		   network and moves with the price of gas. Named only when it is the
+		   one in force, and dated, because a figure from last month read as
+		   today's is worse than no figure. */
+		$rail = self::rail_floor_usd();
+		if ( $rail > self::MIN_INVOICE_USD ) {
+			$at = (int) $this->get_option( 'rail_floor_at' );
+			echo '<p class="description">'
+				. esc_html(
+					sprintf(
+						/* translators: 1: cheapest coin floor in dollars, 2: invoice floor in dollars, 3: how long ago it was asked. */
+						__( 'That is the cheapest coin\'s own floor, %1$s (Cherum will not create an invoice under %2$s either). It belongs to the network, not to the plugin, and moves with the cost of moving money; the store asks Cherum for it and last did %3$s ago.', 'cherum-pay-for-woocommerce' ),
+						'$' . number_format( $rail, 2 ),
+						'$' . number_format( self::MIN_INVOICE_USD, 2 ),
+						$at > 0 && function_exists( 'human_time_diff' )
+							? human_time_diff( $at, time() )
+							: __( 'a moment', 'cherum-pay-for-woocommerce' )
+					)
+				)
+				. '</p>';
+		}
 		$status = (string) $this->get_option( 'webhook_status' );
 		if ( 'yes' === $this->get_option( 'enabled' ) && '' !== $key && '' === (string) $this->get_option( 'webhook_secret' ) ) {
 			echo '<div class="notice notice-warning inline"><p>'
@@ -993,7 +1245,21 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 		$this->init_settings();
 		$this->retire_previous_endpoint( $before );
 		$this->connect_notifications();
-		$this->check_receipt_feature();
+		/* ONE QUESTION, ONE REQUEST (1.3.9). `GET /me` answers both halves the
+		   save needs: whether Cherum is sending buyer receipts, and the floor
+		   under the cheapest coin. The floor belongs to the KEY — Cherum works
+		   it out for the account the key belongs to and the asset that account
+		   settles in — so a save is exactly the moment to ask again rather than
+		   wait out the ten-minute throttle; after it the notice below this
+		   screen prints today's figure. */
+		$key = (string) $this->get_option( 'api_key' );
+		$me  = '' !== $key ? ( new Cherum_Pay_Api( $key ) )->me() : null;
+		$this->check_receipt_feature( $me );
+		self::store_rail_floor( $me );
+		if ( '' !== $key ) {
+			set_transient( 'cherum_pay_floor_checked', 1, self::RAIL_FLOOR_EVERY );
+		}
+		$this->init_settings();
 		return $saved;
 	}
 
@@ -1037,16 +1303,23 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 	 * the box handed over a personal e-mail address for a letter that could
 	 * not be sent. The store had no way to know — so the key introspection
 	 * (`GET /me`) now reports it, and the answer is kept in the settings for
-	 * the notice on this screen. Asked only when the box is ticked: a store
-	 * that sends nothing personal has no question to ask.
+	 * the notice on this screen.
+	 *
+	 * THE ANSWER COMES IN (1.3.9), it is not fetched here any more: the same
+	 * `GET /me` also carries the floor under the cheapest coin, which every
+	 * store needs whether or not it ticked this box, and one body answers both.
+	 * A store with the box off still asks nothing ABOUT THE BUYER — the call
+	 * carries the API key and nothing else — and the setting is cleared here
+	 * exactly as before.
+	 *
+	 * @param array|null $res Answer from GET /me, or null when it was not asked.
 	 */
-	private function check_receipt_feature() {
+	private function check_receipt_feature( $res = null ) {
 		if ( 'yes' !== $this->get_option( 'send_email', 'no' ) || '' === (string) $this->get_option( 'api_key' ) ) {
 			$this->update_option( 'receipt_feature', '' );
 			return;
 		}
-		$res = ( new Cherum_Pay_Api( (string) $this->get_option( 'api_key' ) ) )->me();
-		if ( ! $res['ok'] || ! isset( $res['data']['features'] ) ) {
+		if ( ! is_array( $res ) || empty( $res['ok'] ) || ! isset( $res['data']['features'] ) ) {
 			// An older service, or no answer: say nothing rather than guess.
 			$this->update_option( 'receipt_feature', '' );
 			return;
@@ -1467,6 +1740,40 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 		}
 		$res = $api->create_invoice( $body, $idem );
 
+		/* ONE RETRY WITH "Order #N" WHEN CHERUM REFUSES THE DESCRIPTION (1.3.11).
+		 *
+		 * The line above is already cleaned by Cherum's rule, so this is the
+		 * safety net for what the plugin could not foresee: a host without the
+		 * intl extension reading a rare compatibility character differently, a
+		 * top-level domain delegated after this release. The buyer must not
+		 * pay for that with a failed checkout, and "Order #N" is always
+		 * accepted. Exactly one retry, never a loop: if that is refused too,
+		 * the failure below is reported as it came.
+		 *
+		 * The retry carries its own idempotency key. Cherum refuses the
+		 * description before it looks at the key, so nothing was stored under
+		 * the first one — but a key reused with a different body is refused
+		 * on its own, and a separate key does not depend on that order of
+		 * checks. A double click repeats both requests and lands on the same
+		 * invoice either way. */
+		if ( ! $res['ok'] && 400 === (int) $res['status'] && 'invalid_description' === self::error_code( $res ) ) {
+			$plain = self::order_line( $order );
+			if ( $plain !== $body['description'] ) {
+				self::log( 'order ' . $order->get_id() . ': Cherum refused the item line as a description (' . self::error_problem( $res ) . ') — retrying once with "' . $plain . '"' );
+				$body['description'] = $plain;
+				$res = $api->create_invoice( $body, $idem . '-plain' );
+			}
+		}
+		/* Before the rule is enforced Cherum still creates the invoice and says
+		   what it would refuse later; the shop owner reads it in the log. */
+		if ( $res['ok'] && ! empty( $res['data']['warnings'] ) && is_array( $res['data']['warnings'] ) ) {
+			foreach ( $res['data']['warnings'] as $warning ) {
+				if ( is_array( $warning ) && isset( $warning['code'] ) ) {
+					self::log( 'order ' . $order->get_id() . ': Cherum warns (' . (string) $warning['code'] . '): ' . ( isset( $warning['message'] ) ? (string) $warning['message'] : '' ) );
+				}
+			}
+		}
+
 		if ( ! $res['ok'] ) {
 			/* A NETWORK FAILURE IS NOT A REFUSAL (1.3.2). Until now the buyer
 			   was shown whatever came back, so a timeout read as "Could not
@@ -1636,29 +1943,67 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 	/**
 	 * One line describing the order.
 	 *
+	 * PLAIN TEXT, BY CHERUM'S RULE (1.3.11). The line is printed on Cherum's
+	 * payment page, and Cherum refuses a description with a link, a website
+	 * address, markup or hidden characters in it (`400 invalid_description`
+	 * from the day the rule is enforced). Item names are cleaned by the same
+	 * rule — see Cherum_Pay_Description — and an order whose names leave
+	 * nothing usable is described as "Order #N".
+	 *
 	 * @param WC_Order $order Order.
 	 * @return string
 	 */
 	private function describe( $order ) {
 		$names = array();
-		foreach ( $order->get_items() as $item ) {
-			$names[] = $item->get_name();
+		$items = $order->get_items();
+		foreach ( $items as $item ) {
+			$names[] = (string) $item->get_name();
 			if ( count( $names ) >= 3 ) {
 				break;
 			}
 		}
-		if ( empty( $names ) ) {
-			return sprintf(
+		return Cherum_Pay_Description::for_order( $names, count( $items ) > 3, self::order_line( $order ), (int) $order->get_id() );
+	}
+
+	/**
+	 * "Order #N", the description that is always accepted.
+	 *
+	 * @param WC_Order $order Order.
+	 * @return string
+	 */
+	private static function order_line( $order ) {
+		return Cherum_Pay_Description::fallback(
+			sprintf(
 				/* translators: %d: order number. */
 				__( 'Order #%d', 'cherum-pay-for-woocommerce' ),
 				$order->get_id()
-			);
-		}
-		$line = implode( ', ', $names );
-		if ( count( $order->get_items() ) > 3 ) {
-			$line .= ' …';
-		}
-		return mb_substr( $line, 0, 500 );
+			),
+			(int) $order->get_id()
+		);
+	}
+
+	/**
+	 * The machine-readable code of a refusal, '' when there is none.
+	 *
+	 * @param array $res Answer from Cherum_Pay_Api.
+	 * @return string
+	 */
+	private static function error_code( $res ) {
+		return isset( $res['data']['error']['code'] ) && is_scalar( $res['data']['error']['code'] )
+			? (string) $res['data']['error']['code']
+			: '';
+	}
+
+	/**
+	 * What Cherum named in an `invalid_description` refusal (link, domain…).
+	 *
+	 * @param array $res Answer from Cherum_Pay_Api.
+	 * @return string
+	 */
+	private static function error_problem( $res ) {
+		return isset( $res['data']['error']['detail']['problem'] ) && is_scalar( $res['data']['error']['detail']['problem'] )
+			? (string) $res['data']['error']['detail']['problem']
+			: '?';
 	}
 
 	/**
@@ -2323,6 +2668,11 @@ class Cherum_Pay_Gateway extends WC_Payment_Gateway {
 		   Cherum has switched our endpoint off, no order will ever get an event
 		   and the store would go on believing it is connected (1.3.8). */
 		self::poll_connection_health();
+		/* And the floor under a payment moves with the price of gas (1.3.9).
+		   Throttled to once every ten minutes inside; this pass is simply the
+		   place the store already has for asking Cherum things on a schedule,
+		   so no buyer ever waits for the answer. */
+		self::refresh_rail_floor();
 		$orders = wc_get_orders(
 			array(
 				'limit'        => self::POLL_WINDOW,

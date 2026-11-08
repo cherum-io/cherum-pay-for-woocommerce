@@ -104,9 +104,11 @@ class Cherum_Pay_Order_Box {
 		self::row( __( 'Invoice', 'cherum-pay-for-woocommerce' ), $id ? '<code>' . esc_html( $id ) . '</code>' : '—' );
 		self::row( __( 'Mode', 'cherum-pay-for-woocommerce' ), esc_html( $mode ) );
 		if ( $coin ) {
+			/* The meta keeps the value the service sent ("TON", "ton"); the
+			   row prints names (1.3.10): "1.5 GRAM · TON", "8.83 USDC · Base". */
 			self::row(
 				__( 'Paid with', 'cherum-pay-for-woocommerce' ),
-				esc_html( trim( $amount . ' ' . strtoupper( $coin ) ) ) . ( $network ? ' · ' . esc_html( $network ) : '' )
+				esc_html( trim( $amount . ' ' . Cherum_Pay_Gateway::rail_label( $coin, $network ) ) )
 			);
 		}
 		if ( '' !== $usd ) {

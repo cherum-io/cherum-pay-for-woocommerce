@@ -366,13 +366,9 @@ class Cherum_Pay_Webhook {
 	 * @return string
 	 */
 	private static function late_rail( $data ) {
-		$asset = strtoupper( (string) ( $data['asset'] ?? '' ) );
-		$chain = (string) ( $data['chain'] ?? '' );
-		if ( '' !== $asset && '' !== $chain ) {
-			return $asset . ' · ' . $chain;
-		}
-		$one = '' !== $asset ? $asset : $chain;
-		return '' !== $one ? $one : __( 'coin shown in the dashboard', 'cherum-pay-for-woocommerce' );
+		/* Names, not keys (1.3.10): "GRAM · TON", "USDC · Base". */
+		$rail = Cherum_Pay_Gateway::rail_label( (string) ( $data['asset'] ?? '' ), (string) ( $data['chain'] ?? '' ) );
+		return '' !== $rail ? $rail : __( 'coin shown in the dashboard', 'cherum-pay-for-woocommerce' );
 	}
 
 	/**

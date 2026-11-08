@@ -2,24 +2,24 @@
 
 Crypto payments for WooCommerce: the buyer picks the coin and network, you settle in one asset and refund from the order screen. 0.90%.
 
-Version 1.3.8. Requires WordPress 6.5+, WooCommerce 9.0+, PHP 7.4+. Block and classic checkout. GPLv2 or later.
+Version 1.3.12. Requires WordPress 6.5+, WooCommerce 9.0+, PHP 7.4+. Block and classic checkout. GPLv2 or later.
 
 Install it from the WordPress.org plugin directory: https://wordpress.org/plugins/cherum-pay-for-woocommerce/
 
 ## What it does
 
-Cherum Pay adds one payment method to your checkout. The buyer chooses it, lands on a Cherum payment page, picks a coin and a network they already use, and pays. When the payment confirms, a signed notification closes the order in your store. The fee is 0.90% of the payment; if the buyer pays in a coin other than the one the invoice asks for, converting it adds 0.30%.
+Cherum Pay adds one payment method to your checkout. The buyer chooses it, lands on a Cherum payment page, picks a coin and a network they already use, and pays. When the payment confirms, a signed notification closes the order in your store. The fee is 0.90% of the payment; if the buyer pays in a coin or on a network other than the asset you get paid in, converting it adds 0.50%. A buyer who pays in the coin and network you get paid in sends exactly the order total, and you receive that coin, up to the order total, minus the 0.90%; any other way, the amount also carries a small rate buffer, and the part of it the rate does not use is kept by Cherum.
 
-* **The buyer chooses the coin and the network.** Bitcoin, Ethereum, USDC, USDT, Solana, TON, TRON, BNB and Polygon, with the stablecoins available on eight networks.
+* **The buyer chooses the coin and the network.** Bitcoin, Ethereum, USDC, USDT, Solana, TRON, BNB, Polygon and GRAM on TON, with the stablecoins available on eight networks.
 * **You get one asset.** Whatever the buyer pays with, your balance receives the asset you chose in your Cherum account.
 * **Refunds from the WordPress order screen.** Type the amount in the refund box WooCommerce already gives you and press Refund. Partial refunds work too, and a refund still waiting for the buyer's wallet can be called off from Order actions.
 * **Setup is one field.** Paste an API key, save. The plugin registers your store for notifications on its own.
-* **No monthly fee**, no minimum volume, no balance to top up before you can receive money.
+* **0.90% of the payment.** Converting another coin or network adds 0.50%, and a swap of another token in the buyer's own wallet costs 0.30%. Unless the buyer pays in the coin and network you get paid in, the amount they are asked for also carries a rate buffer of 0.10–1.25% by coin; the payment page names the conversion fee and the buffer as separate figures before they send anything. No monthly fee, no minimum volume, no balance to top up before you can receive money.
 
 Once it runs:
 
 * **The order note shows what actually arrived** on your balance after fees, not what the buyer sent.
-* **Underpaid is not "lost".** If the buyer sends less than the invoice, it stays open and they can top it up. If they send more, the payment page offers them the surplus back and asks where to send it; the order note says what happened.
+* **Underpaid is not "lost".** If the buyer sends less than the invoice, it stays open and they can top it up. Only a shortfall within a small tolerance, meant for an exchange's withdrawal fee, closes the invoice as paid. If they send more, the payment page offers them the surplus back and asks where to send it; the order note says what happened.
 * **A lost notification costs minutes, not a stuck order.** The "order received" page and a check every 15 minutes ask Cherum about unpaid orders and apply the answer through the same code the notification uses.
 * **An optional discount for paying in crypto**, shown as a line in the cart totals while this method is selected.
 
@@ -52,7 +52,7 @@ The plugin holds nothing. Until settlement the deposit address belongs to Cherum
 
 This plugin talks to Cherum Pay, a payment service run by Cherum (https://cherum.io). Nothing is sent until a customer chooses this payment method at checkout.
 
-* **When an invoice is created:** the order total, the store currency, the order number, a short line naming up to three items, the address to bring the customer back to after paying, the address to bring them back to if they leave without paying, and the store's language. No customer name or postal address is sent. The customer's e-mail address is sent only if you switch on "Receipt from Cherum", and then only so Cherum can e-mail them a receipt for the payment.
+* **When an invoice is created:** the order total, the store currency, the order number, a short plain-text line naming up to three items, the address to bring the customer back to after paying, the address to bring them back to if they leave without paying, and the store's language. No customer name or postal address is sent. The customer's e-mail address is sent only if you switch on "Receipt from Cherum", and then only so Cherum can e-mail them a receipt for the payment.
 * **When you save the settings:** the public address of this store's notification route, so Cherum knows where to send order updates.
 * **When you refund:** the invoice identifier, the amount and the reason you typed. When you cancel a refund, or when the plugin asks which refund is open on an order, only the refund or invoice identifier is sent.
 * **Received:** the invoice identifier, the link to the payment page, and signed notifications about the invoice and refund status.
@@ -62,7 +62,7 @@ Privacy policy: https://cherum.io/legal/privacy
 
 ## This repository
 
-This repository mirrors version 1.3.8 of the plugin as published in the WordPress.org directory. The plugin files are the same bytes as the directory's `tags/1.3.8`, and the 1.3.8 release here carries the directory's own zip.
+This repository mirrors version 1.3.12 of the plugin as published in the WordPress.org directory. The plugin files are the same bytes as the directory's `tags/1.3.12`, and the 1.3.12 release here carries the directory's own zip.
 
 * `readme.txt` is the directory page. It has the three most recent releases; `changelog.txt` has everything older.
 * `.wordpress-org/` holds the directory listing images: banners, icons and screenshots. They are not part of the plugin archive.
